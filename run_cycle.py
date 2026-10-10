@@ -54,7 +54,8 @@ def safe_report(store, log=print):
             (key,)).fetchone()
         note = (ev[0] if ev else "") or ""
         log(f"{key[:6]} | {pm} | {state} | fields={sorted(p)} | "
-            f"gov={plan.get('gov_source')} addr={plan.get('addr_source')}"
+            f"gov={plan.get('gov_source')} addr={plan.get('addr_source')} "
+            f"price={plan.get('price')}"
             + (f" | why={note}" if state in ("needs_review", "excluded", "failed") else "")
             + (f" | err={re.sub(r'[0-9]', '#', err)}" if err else ""))
     log(f"total={len(rows)} live={LIVE}")
