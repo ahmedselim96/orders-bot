@@ -91,7 +91,12 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
             if phone.status != "ok":
                 store.transition(key, NEEDS_REVIEW, f"phone: {phone.reason}")
                 continue
-            if real_orders.exists(phone.phone):
+            try:
+                dup = real_orders.exists(phone.phone)
+            except Exception as e:               # ambiguous page: never guess
+                store.transition(key, NEEDS_REVIEW, f"dup-check unsure: {type(e).__name__}")
+                continue
+            if dup:
                 store.transition(key, EXCLUDED, "duplicate of a real order")
                 continue
             if detail.cart_items < 1:
