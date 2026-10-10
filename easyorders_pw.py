@@ -148,4 +148,15 @@ class RealOrders:
         except Exception:
             # unknown page state: never guess "no duplicate" -> stop this order
             raise RuntimeError("orders list state unknown")
-        return rows.count() > 0
+        # Count a row as a duplicate ONLY if its text really contains the number
+        # (guards against an unfiltered list / stale table / empty-state row).
+        tr = str.maketrans("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669",
+                           "0123456789")
+        total = rows.count()
+        matched = 0
+        for i in range(min(total, 50)):
+            txt = rows.nth(i).inner_text().translate(tr)
+            if digits in re.sub(r"[\s\-]", "", txt):
+                matched += 1
+        print(f"[dup-check] rows={total} matched={matched}")   # counts only, no data
+        return matched > 0
