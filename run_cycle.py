@@ -1,29 +1,40 @@
 """Entry point for one cycle (GitHub Actions or any scheduler).
 
+MODES (env BOT_MODE, set as a repository variable):
+  unset / dry : read-only dry-run (default)
+  live        : really saves + converts (needs LIVE_CONFIRM and ALLOW_BATCH too)
+  off         : do nothing
+Live also works for ONE order: DRY_RUN=0 + ONLY_KEY=<6+ chars> (live-one workflow).
+
 SAFETY
-  * Dry-run by default. Live mode needs BOTH DRY_RUN=0 and
-    LIVE_CONFIRM=I-ACCEPT-LIVE-CONVERSIONS. The workflow in this repo
-    hard-codes DRY_RUN=1.
-  * Logs are PUBLIC on a public repo: only masked phones, state names and
-    field NAMES are printed. Never names, addresses or field values.
+  * Logs are PUBLIC on a public repo: only masked phones, state names, field
+    NAMES and reason codes. Never names, addresses or full phones.
   * Login/CAPTCHA/OTP -> exit code 3 (safe stop, never bypass).
+  * Per-cycle caps: time budget + max conversions.
 """
 import json
 import os
 import re
 import sys
+import time
 
 from playwright.sync_api import sync_playwright
 
 from store import Store
 from pipeline import process_cycle
 from easyorders_pw import EasyOrdersDriver, RealOrders, ChallengeDetected
+import notify
 
-LIVE = (os.environ.get("DRY_RUN", "1") == "0"
-        and os.environ.get("LIVE_CONFIRM") == "I-ACCEPT-LIVE-CONVERSIONS")
-MAX_ORDERS = int(os.environ.get("MAX_ORDERS", "15"))   # newest first
-ONLY_KEY = os.environ.get("ONLY_KEY", "").strip()      # live mode: ONE order (key prefix)
+MODE = os.environ.get("BOT_MODE", "").strip().lower()
+CONFIRMED = os.environ.get("LIVE_CONFIRM") == "I-ACCEPT-LIVE-CONVERSIONS"
+LIVE = CONFIRMED and (os.environ.get("DRY_RUN", "1") == "0" or MODE == "live")
+MAX_ORDERS = int(os.environ.get("MAX_ORDERS", "15" if not MODE else "300"))
+ONLY_KEY = os.environ.get("ONLY_KEY", "").strip()      # live: ONE order (key prefix)
+ALLOW_BATCH = os.environ.get("ALLOW_BATCH") == "yes-process-all"
 STAGE = os.environ.get("STAGE", "save")                # save = stop after verified save
+BUDGET = int(os.environ.get("BUDGET_SECONDS", "270"))
+MAX_ACTIONS = int(os.environ.get("MAX_ACTIONS", "5"))
+STATE_DIR = os.environ.get("STATE_DIR", "").strip()
 
 
 class Limited:
@@ -42,11 +53,11 @@ class Limited:
         return getattr(self.inner, name)
 
 
-def safe_report(store, log=print):
+def safe_report(store, since_ts, log=print):
     rows = store.db.execute(
-        "SELECT uuid,state,phone_masked,after_json,last_error FROM orders"
-    ).fetchall()
-    for key, state, pm, after, err in rows:
+        "SELECT uuid,state,phone_masked,after_json,last_error,updated_at FROM orders "
+        "WHERE updated_at>=?", (since_ts,)).fetchall()
+    for key, state, pm, after, err, _ in rows:
         plan = json.loads(after) if after else {}
         p = plan.get("plan", {})
         ev = store.db.execute(
@@ -58,17 +69,46 @@ def safe_report(store, log=print):
             f"price={plan.get('price')}"
             + (f" | why={note}" if state in ("needs_review", "excluded", "failed") else "")
             + (f" | err={re.sub(r'[0-9]', '#', err)}" if err else ""))
-    log(f"total={len(rows)} live={LIVE}")
+    total = store.db.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+    log(f"touched={len(rows)} known_total={total} live={LIVE}")
+
+
+def _challenge_notice():
+    """Tell the owner at most once per 3 hours that the session needs refreshing."""
+    flag = os.path.join(STATE_DIR or ".", "challenge.flag")
+    try:
+        if os.path.exists(flag) and time.time() - os.path.getmtime(flag) < 3 * 3600:
+            return
+        os.makedirs(os.path.dirname(flag) or ".", exist_ok=True)
+        open(flag, "w").write("1")
+    except OSError:
+        pass
+    notify.send("\u26a0\ufe0f \u062c\u0644\u0633\u0629 EasyOrders \u0627\u0646\u062a\u0647\u062a: "
+                "\u0627\u0644\u0623\u062f\u0627\u0629 \u0648\u0642\u0641\u062a \u0644\u062d\u062f "
+                "\u0645\u0627 \u062a\u062c\u062f\u062f \u0627\u0644\u0640 Secret (EASYORDERS_STATE).")
 
 
 def main():
-    if LIVE and len(ONLY_KEY) < 6:
-        print("live mode needs ONLY_KEY (>=6 chars): refusing to touch all orders")
+    if MODE == "off":
+        print("BOT_MODE=off: nothing to do"); return 0
+    if LIVE and len(ONLY_KEY) < 6 and not ALLOW_BATCH:
+        print("live mode needs ONLY_KEY (>=6 chars) or ALLOW_BATCH: refusing")
         return 2
     raw = os.environ.get("EASYORDERS_STATE")
     if not raw:
         print("missing EASYORDERS_STATE secret"); return 2
-    store = Store(":memory:")          # dry-run: nothing persisted, nothing leaked
+
+    # state is persisted ONLY in live batch mode (dry-run leaves no trace)
+    persist = LIVE and ALLOW_BATCH and not ONLY_KEY and STATE_DIR
+    if persist:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        store = Store(os.path.join(STATE_DIR, "state.db"))
+        print(f"[cycle] reopened stale rows: {store.reopen_stale()}")
+    else:
+        store = Store(":memory:")
+    started = time.time()
+    deadline = time.monotonic() + BUDGET if (LIVE and not ONLY_KEY) else None
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         ctx = browser.new_context(storage_state=json.loads(raw))
@@ -79,14 +119,21 @@ def main():
             process_cycle(store, driver, RealOrders(page), taager=None,
                           dry_run=not LIVE, owner="gha",
                           stop_after_save=(STAGE != "convert"),
+                          deadline=deadline,
+                          max_actions=MAX_ACTIONS if (LIVE and not ONLY_KEY) else None,
                           log=lambda m: print("[cycle]", m))
         except ChallengeDetected as e:
             print(f"STOP: login/challenge page detected ({e}). "
                   "Refresh the session secret manually.")
+            _challenge_notice()
             return 3
         finally:
             browser.close()
-    safe_report(store)
+    safe_report(store, started - 1)
+    if LIVE:
+        msg = notify.summarize(store, started - 1)
+        if msg:
+            notify.send(msg)
     return 0
 
 
