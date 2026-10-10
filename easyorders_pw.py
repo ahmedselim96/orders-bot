@@ -132,6 +132,9 @@ class RealOrders:
         self.page = page
 
     def exists(self, phone: str) -> bool:
+        """True = a real order with this phone exists. False = the filtered list
+        is genuinely empty. Anything ambiguous (still loading, filter not applied,
+        unknown page) raises -> the order goes to Needs Review, never guessed."""
         digits = phone.lstrip("0")
         flt = quote(json.dumps({"phone$cont": digits}, ensure_ascii=False,
                                separators=(",", ":")), safe="")
@@ -140,23 +143,30 @@ class RealOrders:
             self.page.wait_for_load_state("networkidle", timeout=15000)
         except Exception:
             pass
-        self.page.wait_for_timeout(1500)   # let the filtered table replace the old one
-        rows = self.page.locator("tbody tr")
-        empty = self.page.get_by_text("\u0644\u0627 \u064a\u0648\u062c\u062f")
-        try:
-            rows.or_(empty).first.wait_for(timeout=15000)
-        except Exception:
-            # unknown page state: never guess "no duplicate" -> stop this order
-            raise RuntimeError("orders list state unknown")
-        # Count a row as a duplicate ONLY if its text really contains the number
-        # (guards against an unfiltered list / stale table / empty-state row).
         tr = str.maketrans("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669",
                            "0123456789")
-        total = rows.count()
-        matched = 0
-        for i in range(min(total, 50)):
-            txt = rows.nth(i).inner_text().translate(tr)
-            if digits in re.sub(r"[\s\-]", "", txt):
-                matched += 1
-        print(f"[dup-check] rows={total} matched={matched}")   # counts only, no data
-        return matched > 0
+        rows = self.page.locator("tbody tr")
+        empty = self.page.get_by_text("\u0644\u0627 \u064a\u0648\u062c\u062f")
+        total = filled = matched = 0
+        for _ in range(20):                      # ~20 s of 1 s polls
+            self.page.wait_for_timeout(1000)
+            total = rows.count()
+            if total == 0:
+                if empty.count() > 0:
+                    print("[dup-check] empty-state -> no duplicate")
+                    return False
+                continue
+            texts = [rows.nth(i).inner_text().translate(tr)
+                     for i in range(min(total, 50))]
+            texts = [re.sub(r"[\s\-]", "", t) for t in texts]
+            filled = sum(1 for t in texts if t)
+            matched = sum(1 for t in texts if digits in t)
+            if filled == len(texts) and matched == len(texts):
+                print(f"[dup-check] rows={total} all match -> duplicate")
+                return True
+        # not consistent: skeleton rows, unfiltered list, or unknown empty state
+        body = self.page.inner_text("main")[:300] if total == 0 else ""
+        body = re.sub(r"[0-9\u0660-\u0669]", "#", body).replace("\n", " / ")
+        print(f"[dup-check] UNSURE rows={total} filled={filled} matched={matched} "
+              f"page={body!r}")
+        raise RuntimeError("orders list state unknown")
