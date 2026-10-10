@@ -132,41 +132,60 @@ class RealOrders:
         self.page = page
 
     def exists(self, phone: str) -> bool:
-        """True = a real order with this phone exists. False = the filtered list
-        is genuinely empty. Anything ambiguous (still loading, filter not applied,
-        unknown page) raises -> the order goes to Needs Review, never guessed."""
+        """True  = a real order with this phone is in the filtered list.
+        False = the list loaded OK (a 200 from the orders API was seen) and stayed
+                empty for 3 consecutive checks.
+        Anything else (skeleton rows, unfiltered list, API error, unknown page)
+        raises -> the order goes to Needs Review. Never guessed."""
         digits = phone.lstrip("0")
         flt = quote(json.dumps({"phone$cont": digits}, ensure_ascii=False,
                                separators=(",", ":")), safe="")
-        self.page.goto(f"{BASE}/orders?filter={flt}")
+        seen = []                                  # (status, masked path) of order API calls
+
+        def on_resp(r):
+            try:
+                if r.request.resource_type in ("xhr", "fetch") and "order" in r.url.lower():
+                    path = re.sub(r"[0-9a-f]{8}-[0-9a-f-]{27}|\d+", "#", r.url.split("?")[0])
+                    seen.append((r.status, path[-60:]))
+            except Exception:
+                pass
+
+        self.page.on("response", on_resp)
         try:
-            self.page.wait_for_load_state("networkidle", timeout=15000)
-        except Exception:
-            pass
-        tr = str.maketrans("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669",
-                           "0123456789")
-        rows = self.page.locator("tbody tr")
-        empty = self.page.get_by_text("\u0644\u0627 \u064a\u0648\u062c\u062f")
-        total = filled = matched = 0
-        for _ in range(20):                      # ~20 s of 1 s polls
-            self.page.wait_for_timeout(1000)
-            total = rows.count()
-            if total == 0:
-                if empty.count() > 0:
-                    print("[dup-check] empty-state -> no duplicate")
-                    return False
-                continue
-            texts = [rows.nth(i).inner_text().translate(tr)
-                     for i in range(min(total, 50))]
-            texts = [re.sub(r"[\s\-]", "", t) for t in texts]
-            filled = sum(1 for t in texts if t)
-            matched = sum(1 for t in texts if digits in t)
-            if filled == len(texts) and matched == len(texts):
-                print(f"[dup-check] rows={total} all match -> duplicate")
-                return True
-        # not consistent: skeleton rows, unfiltered list, or unknown empty state
-        body = self.page.inner_text("main")[:300] if total == 0 else ""
-        body = re.sub(r"[0-9\u0660-\u0669]", "#", body).replace("\n", " / ")
-        print(f"[dup-check] UNSURE rows={total} filled={filled} matched={matched} "
-              f"page={body!r}")
-        raise RuntimeError("orders list state unknown")
+            self.page.goto(f"{BASE}/orders?filter={flt}")
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+            tr = str.maketrans("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669",
+                               "0123456789")
+            rows = self.page.locator("tbody tr")
+            total = filled = matched = empty_polls = 0
+            for _ in range(20):                    # up to ~20 s of 1 s polls
+                self.page.wait_for_timeout(1000)
+                total = rows.count()
+                if total == 0:
+                    empty_polls += 1
+                    if empty_polls >= 3:
+                        if any(st >= 400 for st, _ in seen):
+                            raise RuntimeError("orders API error")
+                        if any(st == 200 for st, _ in seen):
+                            print("[dup-check] list loaded, empty -> no duplicate")
+                            return False
+                    continue
+                empty_polls = 0
+                texts = [re.sub(r"[\s\-]", "", rows.nth(i).inner_text().translate(tr))
+                         for i in range(min(total, 50))]
+                filled = sum(1 for t in texts if t)
+                matched = sum(1 for t in texts if digits in t)
+                if filled == len(texts) and matched == len(texts):
+                    print(f"[dup-check] rows={total} all match -> duplicate")
+                    return True
+            print(f"[dup-check] UNSURE rows={total} filled={filled} matched={matched} "
+                  f"api={sorted(set(seen))[:4]}")
+            raise RuntimeError("orders list state unknown")
+        finally:
+            try:
+                self.page.remove_listener("response", on_resp)
+            except Exception:
+                pass
