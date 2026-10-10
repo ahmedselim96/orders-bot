@@ -99,22 +99,74 @@ class EasyOrdersDriver:
         return d
 
     # ---- writing (never reached in dry-run) --------------------------
-    def save(self, detail: Detail, changes: dict):
+    def _open_edit(self, detail: Detail):
         self.page.goto(f"{BASE}/missed-orders/{detail.uuid}")
         self.page.click("button:has-text('\u062a\u0639\u062f\u064a\u0644')")
-        dlg = self.page.wait_for_selector("[role=dialog]")
+        self.page.wait_for_selector("[role=dialog]")
+        return self.page.locator("[role=dialog]").first
+
+    def _close_edit(self):
+        try:
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_selector("[role=dialog]", state="detached", timeout=5000)
+        except Exception:
+            btn = self.page.query_selector("[role=dialog] button:has-text('\u0625\u0644\u063a\u0627\u0621')")
+            if btn:
+                btn.click()
+                self.page.wait_for_selector("[role=dialog]", state="detached", timeout=5000)
+
+    @staticmethod
+    def _num(txt):
+        tr = str.maketrans("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669", "0123456789")
+        m = re.search(r"\d+(?:\.\d+)?", (txt or "").translate(tr).replace(",", ""))
+        return float(m.group()) if m else None
+
+    def read_cart(self, detail: Detail):
+        """[(unit_price, qty), ...] read from the edit form. Opens it and closes it
+        WITHOUT saving. Empty list if the fields are not found (-> Needs Review)."""
+        dlg = self._open_edit(detail)
+        try:
+            prices = dlg.get_by_label(re.compile(r"^\u0627\u0644\u0633\u0639\u0631")).all()
+            qtys = dlg.get_by_label(re.compile(r"^\u0627\u0644\u0643\u0645\u064a\u0629")).all()
+            if len(prices) != len(qtys):
+                print(f"[cart] mismatch prices={len(prices)} qtys={len(qtys)}")
+                return []
+            out = []
+            for pr, q in zip(prices, qtys):
+                u, n = self._num(pr.input_value()), self._num(q.input_value())
+                if u is None or n is None or n != int(n):
+                    return []
+                out.append((u if u != int(u) else int(u), int(n)))
+            return out
+        finally:
+            self._close_edit()
+
+    def save(self, detail: Detail, changes: dict):
+        dlg = self._open_edit(detail)
         names = {"phone": "phone", "government": "government",
                  "address": "address", "note": "note"}
         for key, val in changes.items():
-            dlg.query_selector(f"[name='{names[key]}']").fill(val)
-        dlg.query_selector("button:has-text('\u062d\u0641\u0638')").click()
+            if key == "price":
+                boxes = dlg.get_by_label(re.compile(r"^\u0627\u0644\u0633\u0639\u0631"))
+                if boxes.count() != len(val):
+                    raise RuntimeError("price fields count changed")
+                for i, v in enumerate(val):
+                    boxes.nth(i).fill(str(v))
+            else:
+                dlg.locator(f"[name='{names[key]}']").fill(val)
+        dlg.locator("button:has-text('\u062d\u0641\u0638')").click()
         self.page.wait_for_selector("[role=dialog]", state="detached", timeout=15000)
 
     def read_back_matches(self, detail: Detail, changes: dict) -> bool:
         self.page.goto(f"{BASE}/missed-orders/{detail.uuid}")
         self.page.reload()
         fresh = self._read_detail()
-        return all(getattr(fresh, k) == v for k, v in changes.items())
+        if not all(getattr(fresh, k) == v for k, v in changes.items() if k != "price"):
+            return False
+        if "price" in changes:
+            cart = self.read_cart(detail)
+            return [c[0] for c in cart] == list(changes["price"])
+        return True
 
     def convert(self, detail: Detail):
         self.page.goto(f"{BASE}/missed-orders/{detail.uuid}")
