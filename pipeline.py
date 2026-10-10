@@ -65,7 +65,7 @@ def plan_changes(detail: Detail, phone, gov, addr) -> dict:
 
 
 def process_cycle(store: Store, driver, real_orders, taager=None,
-                  dry_run=True, owner="run", log=print):
+                  dry_run=True, owner="run", log=print, stop_after_save=False):
     if not store.acquire_lock(owner, ttl=240):
         log("another run holds the lock; exiting")
         return {"skipped": "locked"}
@@ -130,12 +130,19 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
             # ---- real run -------------------------------------------
             store.transition(key, PROCESSING, "saving")
             try:
-                driver.save(detail, changes)
-                if not driver.read_back_matches(detail, changes):
-                    raise RuntimeError("read-back mismatch after save")
-                store.transition(key, SAVED, "save verified")
+                if changes:
+                    driver.save(detail, changes)
+                    if not driver.read_back_matches(detail, changes):
+                        raise RuntimeError("read-back mismatch after save")
+                store.transition(key, SAVED, "save verified" if changes else "nothing to save")
             except Exception as e:
                 store.transition(key, FAILED, "save failed", error=str(e)[:200])
+                continue
+            if stop_after_save:
+                nk = Row(row.name, changes.get("phone", row.phone_raw), row.reason,
+                         row.date, row.index).key
+                log(f"saved; key after save = {nk[:6]} (use it as ONLY_KEY for the convert stage)")
+                summary[key] = {"stopped": "after_save", "fields": sorted(changes)}
                 continue
             if not store.begin_resend(key):
                 continue
