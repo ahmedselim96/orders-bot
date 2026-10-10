@@ -1,6 +1,11 @@
 name: missed-orders-cycle
 
-# Only schedule + manual. NEVER pull_request (secrets must not reach forks).
+# Runs every ~5 minutes. Mode is controlled by the repository VARIABLE BOT_MODE
+# (Settings > Secrets and variables > Actions > Variables):
+#   (not set)  -> read-only dry-run
+#   live       -> really saves + converts (max 5 conversions per cycle)
+#   off        -> the job is skipped completely (kill switch)
+# NEVER add pull_request here (secrets must not reach forks).
 on:
   schedule:
     - cron: "*/5 * * * *"      # GitHub may delay scheduled runs
@@ -15,8 +20,9 @@ concurrency:
 
 jobs:
   cycle:
+    if: ${{ vars.BOT_MODE != 'off' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 9
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,9 +36,30 @@ jobs:
           path: ~/.cache/ms-playwright
           key: pw-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
       - run: python -m playwright install --with-deps chromium
-      - name: Run one dry-run cycle
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: .state
+          key: bot-state-${{ github.run_id }}
+          restore-keys: bot-state-
+      - name: Run one cycle
         env:
-          DRY_RUN: "1"              # keep at 1 until Ali approves live mode
-          MAX_ORDERS: "15"
+          BOT_MODE: ${{ vars.BOT_MODE }}
+          DRY_RUN: "1"
+          LIVE_CONFIRM: "I-ACCEPT-LIVE-CONVERSIONS"
+          ALLOW_BATCH: "yes-process-all"
+          STAGE: "convert"
+          STATE_DIR: ".state"
+          MAX_ACTIONS: "5"
+          BUDGET_SECONDS: "270"
           EASYORDERS_STATE: ${{ secrets.EASYORDERS_STATE }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python run_cycle.py
+      - name: Save state
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .state
+          key: bot-state-${{ github.run_id }}-${{ github.run_attempt }}
