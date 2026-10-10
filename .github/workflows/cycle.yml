@@ -1,0 +1,38 @@
+name: missed-orders-cycle
+
+# Only schedule + manual. NEVER pull_request (secrets must not reach forks).
+on:
+  schedule:
+    - cron: "*/5 * * * *"      # GitHub may delay scheduled runs
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: missed-orders-cycle    # no overlapping cycles
+  cancel-in-progress: false
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Cache browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+      - run: python -m playwright install --with-deps chromium
+      - name: Run one dry-run cycle
+        env:
+          DRY_RUN: "1"              # keep at 1 until Ali approves live mode
+          MAX_ORDERS: "15"
+          EASYORDERS_STATE: ${{ secrets.EASYORDERS_STATE }}
+        run: python run_cycle.py
