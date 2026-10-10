@@ -4,12 +4,13 @@ drivers, so it is testable offline.
 dry_run=True (default): reads, decides, logs the PLAN. Never saves or converts.
 """
 import hashlib
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
 from phone import normalize_phone
 from governorate import resolve_governorate, resolve_address
-from shipping import SHIPPING, plan_prices
+from shipping import SHIPPING, plan_prices, make_note, shipping_marker, strip_old_marker
 from store import (Store, NEW, READY, PROCESSING, SAVED, RESENDING, SUCCEEDED,
                     FAILED, NEEDS_REVIEW, EXCLUDED)
 
@@ -121,23 +122,44 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
             changes = plan_changes(detail, phone, gov, addr)
 
             # ---- shipping goes INTO the unit price (conversion cannot be undone) ----
-            if "[ship:" in (detail.note or ""):
-                store.transition(key, NEEDS_REVIEW, "shipping marker already present")
-                continue
-            try:
-                cart = driver.read_cart(detail)          # opens the edit form, never saves
-            except Exception as e:
-                store.transition(key, NEEDS_REVIEW, f"cart read failed: {type(e).__name__}")
-                continue
-            ok, new_units, why = plan_prices(gov.province, cart)
-            if not ok:
-                store.transition(key, NEEDS_REVIEW, f"price: {why}")
-                continue
-            fee = SHIPPING[gov.province]
-            changes["price"] = new_units
-            base_note = changes.get("note", detail.note or "")
-            changes["note"] = (base_note + " ; " if base_note else "") + f"[ship:{fee}]"
-            price_info = {"lines": [list(c) for c in cart], "fee": fee, "new": new_units}
+            mk = shipping_marker(detail.note)
+            fee = SHIPPING.get(gov.province)
+            if mk and mk[0] == "new":
+                # Already shipped by an earlier save: NEVER add it again, never re-save.
+                if fee is None or not (fee <= mk[1] <= fee + 10):
+                    store.transition(key, NEEDS_REVIEW, "shipping note does not match province")
+                    continue
+                changes = {}
+                price_info = {"already_shipped": mk[1]}
+            else:
+                try:
+                    cart = driver.read_cart(detail)      # opens the edit form, never saves
+                except Exception as e:
+                    store.transition(key, NEEDS_REVIEW, f"cart read failed: {type(e).__name__}")
+                    continue
+                if mk and mk[0] == "old":
+                    # legacy "[ship:N]" marker: price already includes N -> only swap the note text
+                    total = sum(u * q for u, q in cart)
+                    if not cart or fee is None or mk[1] != fee:
+                        store.transition(key, NEEDS_REVIEW, "legacy shipping marker does not match province")
+                        continue
+                    base = strip_old_marker(detail.note)
+                    text = make_note(total - mk[1], mk[1], total)
+                    changes = {"note": (base + " ; " if base else "") + text}
+                    price_info = {"legacy_marker": mk[1], "total": total}
+                else:
+                    ok, new_units, why = plan_prices(gov.province, cart)
+                    if not ok:
+                        store.transition(key, NEEDS_REVIEW, f"price: {why}")
+                        continue
+                    old_total = sum(u * q for u, q in cart)
+                    new_total = sum(nu * q for nu, (u, q) in zip(new_units, cart))
+                    changes["price"] = new_units
+                    base_note = changes.get("note", detail.note or "")
+                    text = make_note(old_total, new_total - old_total, new_total)
+                    changes["note"] = (base_note + " ; " if base_note else "") + text
+                    price_info = {"lines": [list(c) for c in cart], "fee": fee, "new": new_units,
+                                  "total": new_total}
 
             store.transition(key, READY, "decided",
                              after={"uuid": detail.uuid, "plan": changes,
