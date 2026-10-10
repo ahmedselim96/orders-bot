@@ -136,5 +136,16 @@ class RealOrders:
         flt = quote(json.dumps({"phone$cont": digits}, ensure_ascii=False,
                                separators=(",", ":")), safe="")
         self.page.goto(f"{BASE}/orders?filter={flt}")
-        self.page.wait_for_selector("tbody tr, text=\u0644\u0627 \u064a\u0648\u062c\u062f", timeout=15000)
-        return len(self.page.query_selector_all("tbody tr")) > 0
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception:
+            pass
+        self.page.wait_for_timeout(1500)   # let the filtered table replace the old one
+        rows = self.page.locator("tbody tr")
+        empty = self.page.get_by_text("\u0644\u0627 \u064a\u0648\u062c\u062f")
+        try:
+            rows.or_(empty).first.wait_for(timeout=15000)
+        except Exception:
+            # unknown page state: never guess "no duplicate" -> stop this order
+            raise RuntimeError("orders list state unknown")
+        return rows.count() > 0
