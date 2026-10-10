@@ -1,0 +1,49 @@
+name: live-one-order
+
+# MANUAL ONLY. Touches exactly ONE order (the key you type). Never scheduled.
+on:
+  workflow_dispatch:
+    inputs:
+      only_key:
+        description: "First 6+ chars of the order key from the dry-run log (e.g. 9ae658)"
+        required: true
+      stage:
+        description: "save = save+verify only | convert = also convert and verify"
+        required: true
+        default: "save"
+        type: choice
+        options: ["save", "convert"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: missed-orders-cycle
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Cache browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+      - run: python -m playwright install --with-deps chromium
+      - name: Live run on ONE order
+        env:
+          DRY_RUN: "0"
+          LIVE_CONFIRM: "I-ACCEPT-LIVE-CONVERSIONS"
+          ONLY_KEY: ${{ inputs.only_key }}
+          STAGE: ${{ inputs.stage }}
+          MAX_ORDERS: "1"
+          EASYORDERS_STATE: ${{ secrets.EASYORDERS_STATE }}
+        run: python run_cycle.py
