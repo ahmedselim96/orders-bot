@@ -141,6 +141,24 @@ class Store:
             "INSERT INTO events(uuid,ts,from_state,to_state,note) VALUES(?,?,?,?,?)",
             (uuid, self.clock(), a, b, note))
 
+    def reopen_stale(self, nr_age=3 * 3600, inflight_age=900):
+        """Unattended mode. Needs-review rows are re-checked after nr_age (the human
+        may have fixed them); READY/PROCESSING/SAVED rows left over from a dead run
+        are re-evaluated (safe: the shipping note + real-orders check guard against
+        double edits). RESENDING and FAILED are NEVER reopened (human decides)."""
+        now = self.clock()
+        with self._tx():
+            rows = self.db.execute(
+                "SELECT uuid,state FROM orders WHERE (state=? AND updated_at<?) "
+                "OR (state IN (?,?,?) AND updated_at<?)",
+                (NEEDS_REVIEW, now - nr_age, READY, PROCESSING, SAVED, now - inflight_age)
+            ).fetchall()
+            for uuid, st in rows:
+                self.db.execute("UPDATE orders SET state=?, updated_at=? WHERE uuid=?",
+                                (NEW, now, uuid))
+                self._event(uuid, st, NEW, "auto-reopen")
+        return len(rows)
+
     def history(self, uuid):
         return self.db.execute(
             "SELECT from_state,to_state,note FROM events WHERE uuid=? ORDER BY id",
