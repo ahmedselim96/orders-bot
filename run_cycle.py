@@ -43,8 +43,13 @@ def safe_report(store, log=print):
     for key, state, pm, after, err in rows:
         plan = json.loads(after) if after else {}
         p = plan.get("plan", {})
+        ev = store.db.execute(
+            "SELECT note FROM events WHERE uuid=? ORDER BY id DESC LIMIT 1",
+            (key,)).fetchone()
+        note = (ev[0] if ev else "") or ""
         log(f"{key[:6]} | {pm} | {state} | fields={sorted(p)} | "
             f"gov={plan.get('gov_source')} addr={plan.get('addr_source')}"
+            + (f" | why={note}" if state in ("needs_review", "excluded", "failed") else "")
             + (f" | err={err}" if err else ""))
     log(f"total={len(rows)} live={LIVE}")
 
