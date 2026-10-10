@@ -9,6 +9,7 @@ from typing import Optional
 
 from phone import normalize_phone
 from governorate import resolve_governorate, resolve_address
+from shipping import SHIPPING, plan_prices
 from store import (Store, NEW, READY, PROCESSING, SAVED, RESENDING, SUCCEEDED,
                     FAILED, NEEDS_REVIEW, EXCLUDED)
 
@@ -119,10 +120,30 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
                                    hit.province if hit else None)
             changes = plan_changes(detail, phone, gov, addr)
 
+            # ---- shipping goes INTO the unit price (conversion cannot be undone) ----
+            if "[ship:" in (detail.note or ""):
+                store.transition(key, NEEDS_REVIEW, "shipping marker already present")
+                continue
+            try:
+                cart = driver.read_cart(detail)          # opens the edit form, never saves
+            except Exception as e:
+                store.transition(key, NEEDS_REVIEW, f"cart read failed: {type(e).__name__}")
+                continue
+            ok, new_units, why = plan_prices(gov.province, cart)
+            if not ok:
+                store.transition(key, NEEDS_REVIEW, f"price: {why}")
+                continue
+            fee = SHIPPING[gov.province]
+            changes["price"] = new_units
+            base_note = changes.get("note", detail.note or "")
+            changes["note"] = (base_note + " ; " if base_note else "") + f"[ship:{fee}]"
+            price_info = {"lines": [list(c) for c in cart], "fee": fee, "new": new_units}
+
             store.transition(key, READY, "decided",
                              after={"uuid": detail.uuid, "plan": changes,
                                     "gov_source": gov.source,
-                                    "addr_source": addr.source})
+                                    "addr_source": addr.source,
+                                    "price": price_info})
             if dry_run:
                 summary[key] = {"plan": list(changes), "dry_run": True}
                 continue
