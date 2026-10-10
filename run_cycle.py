@@ -73,7 +73,7 @@ def main():
         browser = pw.chromium.launch()
         ctx = browser.new_context(storage_state=json.loads(raw))
         page = ctx.new_page()
-        page.set_default_timeout(20000)
+        page.set_default_timeout(45000)
         try:
             driver = Limited(EasyOrdersDriver(page), MAX_ORDERS, ONLY_KEY if LIVE else "")
             process_cycle(store, driver, RealOrders(page), taager=None,
