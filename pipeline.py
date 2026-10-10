@@ -5,6 +5,7 @@ dry_run=True (default): reads, decides, logs the PLAN. Never saves or converts.
 """
 import hashlib
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -67,13 +68,21 @@ def plan_changes(detail: Detail, phone, gov, addr) -> dict:
 
 
 def process_cycle(store: Store, driver, real_orders, taager=None,
-                  dry_run=True, owner="run", log=print, stop_after_save=False):
-    if not store.acquire_lock(owner, ttl=240):
+                  dry_run=True, owner="run", log=print, stop_after_save=False,
+                  deadline=None, max_actions=None):
+    if not store.acquire_lock(owner, ttl=600):
         log("another run holds the lock; exiting")
         return {"skipped": "locked"}
     summary = {}
     try:
+        actions = 0
         for row in driver.list_missed():
+            if deadline is not None and time.monotonic() > deadline:
+                log("time budget reached; the rest waits for the next cycle")
+                break
+            if max_actions is not None and actions >= max_actions:
+                log("per-cycle action cap reached; the rest waits for the next cycle")
+                break
             key = row.key
             store.register(key, row.phone_raw, {"reason": row.reason})
             st = store.state(key)
@@ -171,6 +180,7 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
                 continue
 
             # ---- real run -------------------------------------------
+            actions += 1
             store.transition(key, PROCESSING, "saving")
             try:
                 if changes:
