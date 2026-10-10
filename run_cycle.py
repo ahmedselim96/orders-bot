@@ -10,6 +10,7 @@ SAFETY
 """
 import json
 import os
+import re
 import sys
 
 from playwright.sync_api import sync_playwright
@@ -21,16 +22,21 @@ from easyorders_pw import EasyOrdersDriver, RealOrders, ChallengeDetected
 LIVE = (os.environ.get("DRY_RUN", "1") == "0"
         and os.environ.get("LIVE_CONFIRM") == "I-ACCEPT-LIVE-CONVERSIONS")
 MAX_ORDERS = int(os.environ.get("MAX_ORDERS", "15"))   # newest first
+ONLY_KEY = os.environ.get("ONLY_KEY", "").strip()      # live mode: ONE order (key prefix)
+STAGE = os.environ.get("STAGE", "save")                # save = stop after verified save
 
 
 class Limited:
     """Wrap a driver so a cycle only looks at the newest N rows."""
 
-    def __init__(self, inner, n):
-        self.inner, self.n = inner, n
+    def __init__(self, inner, n, only_key=""):
+        self.inner, self.n, self.only = inner, n, only_key
 
     def list_missed(self):
-        return self.inner.list_missed()[: self.n]
+        rows = self.inner.list_missed()
+        if self.only:
+            rows = [r for r in rows if r.key.startswith(self.only)]
+        return rows[: self.n]
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
@@ -50,11 +56,14 @@ def safe_report(store, log=print):
         log(f"{key[:6]} | {pm} | {state} | fields={sorted(p)} | "
             f"gov={plan.get('gov_source')} addr={plan.get('addr_source')}"
             + (f" | why={note}" if state in ("needs_review", "excluded", "failed") else "")
-            + (f" | err={err}" if err else ""))
+            + (f" | err={re.sub(r'[0-9]', '#', err)}" if err else ""))
     log(f"total={len(rows)} live={LIVE}")
 
 
 def main():
+    if LIVE and len(ONLY_KEY) < 6:
+        print("live mode needs ONLY_KEY (>=6 chars): refusing to touch all orders")
+        return 2
     raw = os.environ.get("EASYORDERS_STATE")
     if not raw:
         print("missing EASYORDERS_STATE secret"); return 2
@@ -65,9 +74,10 @@ def main():
         page = ctx.new_page()
         page.set_default_timeout(20000)
         try:
-            driver = Limited(EasyOrdersDriver(page), MAX_ORDERS)
+            driver = Limited(EasyOrdersDriver(page), MAX_ORDERS, ONLY_KEY if LIVE else "")
             process_cycle(store, driver, RealOrders(page), taager=None,
                           dry_run=not LIVE, owner="gha",
+                          stop_after_save=(STAGE != "convert"),
                           log=lambda m: print("[cycle]", m))
         except ChallengeDetected as e:
             print(f"STOP: login/challenge page detected ({e}). "
