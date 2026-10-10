@@ -118,10 +118,30 @@ class EasyOrdersDriver:
 
     def convert(self, detail: Detail):
         self.page.goto(f"{BASE}/missed-orders/{detail.uuid}")
-        btn = self.page.wait_for_selector("button:has-text('\u062a\u062d\u0648\u064a\u0644')", timeout=10000)
+        btn = self.page.wait_for_selector(
+            "button:has-text('\u062a\u062d\u0648\u064a\u0644 \u0644\u0637\u0644\u0628')", timeout=10000)
         if btn.is_disabled():
             raise RuntimeError("convert button disabled (missing required data)")
         btn.click()
+        self.page.wait_for_timeout(2500)
+        dlg = self.page.query_selector("[role=dialog]")
+        if dlg:
+            # unknown confirmation step: report the button labels only, do not click
+            labels = [b.inner_text().strip()[:20] for b in dlg.query_selector_all("button")]
+            print(f"[convert] dialog appeared, buttons={labels}")
+            raise RuntimeError("convert needs confirmation dialog")
+
+    def verify_converted(self, phone: str) -> bool:
+        """A real order with this phone must now exist (poll up to ~60 s)."""
+        ro = RealOrders(self.page)
+        for _ in range(6):
+            try:
+                if ro.exists(phone):
+                    return True
+            except RuntimeError:
+                pass
+            self.page.wait_for_timeout(5000)
+        return False
 
 
 class RealOrders:
