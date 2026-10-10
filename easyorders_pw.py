@@ -11,6 +11,8 @@ ChallengeDetected and the cycle must stop (never bypass).
 """
 import json
 import re
+
+from playwright.sync_api import TimeoutError as PWTimeout
 from urllib.parse import quote
 
 from pipeline import Row, Detail
@@ -44,7 +46,7 @@ class EasyOrdersDriver:
     def list_missed(self):
         rows, page_no = [], 1
         while True:
-            self.page.goto(MISSED.format(page=page_no))
+            self.page.goto(MISSED.format(page=page_no), wait_until="domcontentloaded")
             self.page.wait_for_selector("tbody tr, [role=alert]", timeout=20000)
             self._guard()
             trs = self.page.query_selector_all("tbody tr")
@@ -62,7 +64,7 @@ class EasyOrdersDriver:
 
     def open_detail(self, row: Row) -> Detail:
         # list rows have no href: click the row and read the uuid from the route
-        self.page.goto(MISSED.format(page=1))
+        self.page.goto(MISSED.format(page=1), wait_until="domcontentloaded")
         self.page.wait_for_selector("tbody tr")
         for tr in self.page.query_selector_all("tbody tr"):
             t = tr.inner_text()
@@ -100,7 +102,7 @@ class EasyOrdersDriver:
 
     # ---- writing (never reached in dry-run) --------------------------
     def _open_edit(self, detail: Detail):
-        self.page.goto(f"{BASE}/missed-orders/{detail.uuid}")
+        self.page.goto(f"{BASE}/missed-orders/{detail.uuid}", wait_until="domcontentloaded")
         self.page.click("button:has-text('\u062a\u0639\u062f\u064a\u0644')")
         self.page.wait_for_selector("[role=dialog]")
         return self.page.locator("[role=dialog]").first
@@ -158,7 +160,7 @@ class EasyOrdersDriver:
         self.page.wait_for_selector("[role=dialog]", state="detached", timeout=15000)
 
     def read_back_matches(self, detail: Detail, changes: dict) -> bool:
-        self.page.goto(f"{BASE}/missed-orders/{detail.uuid}")
+        self.page.goto(f"{BASE}/missed-orders/{detail.uuid}", wait_until="domcontentloaded")
         self.page.reload()
         fresh = self._read_detail()
         if not all(getattr(fresh, k) == v for k, v in changes.items() if k != "price"):
@@ -169,7 +171,7 @@ class EasyOrdersDriver:
         return True
 
     def convert(self, detail: Detail):
-        self.page.goto(f"{BASE}/missed-orders/{detail.uuid}")
+        self.page.goto(f"{BASE}/missed-orders/{detail.uuid}", wait_until="domcontentloaded")
         btn = self.page.wait_for_selector(
             "button:has-text('\u062a\u062d\u0648\u064a\u0644 \u0644\u0637\u0644\u0628')", timeout=10000)
         if btn.is_disabled():
@@ -190,7 +192,7 @@ class EasyOrdersDriver:
             try:
                 if ro.exists(phone):
                     return True
-            except RuntimeError:
+            except (RuntimeError, PWTimeout):
                 pass
             self.page.wait_for_timeout(5000)
         return False
@@ -204,6 +206,17 @@ class RealOrders:
         self.page = page
 
     def exists(self, phone: str) -> bool:
+        """Retry transient timeouts (never retries a decided answer)."""
+        last = None
+        for attempt in range(3):
+            try:
+                return self._exists_once(phone)
+            except PWTimeout as e:
+                last = e
+                self.page.wait_for_timeout(3000)
+        raise RuntimeError("orders list timed out 3 times") from last
+
+    def _exists_once(self, phone: str) -> bool:
         """True  = a real order with this phone is in the filtered list.
         False = the list loaded OK (a 200 from the orders API was seen) and stayed
                 empty for 3 consecutive checks.
@@ -224,7 +237,7 @@ class RealOrders:
 
         self.page.on("response", on_resp)
         try:
-            self.page.goto(f"{BASE}/orders?filter={flt}")
+            self.page.goto(f"{BASE}/orders?filter={flt}", wait_until="domcontentloaded")
             try:
                 self.page.wait_for_load_state("networkidle", timeout=15000)
             except Exception:
