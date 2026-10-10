@@ -49,3 +49,34 @@ def plan_prices(province, cart):
     total_qty = sum(q for _, q in cart)
     share = Fraction(fee, total_qty)
     return True, [math.ceil(Fraction(u).limit_denominator(100) + share) for u, _ in cart], ""
+
+
+import re
+
+_NOTE = ("\u0645\u0644\u062d\u0648\u0638\u0629 \u0644\u0644\u0643\u0648\u0644 \u0633\u0646\u062a\u0631: \u0633\u0639\u0631 \u0627\u0644\u0645\u0646\u062a\u062c {p} \u062c\u0646\u064a\u0647 + "
+         "\u0645\u0635\u0627\u0631\u064a\u0641 \u0627\u0644\u0634\u062d\u0646 {s} \u062c\u0646\u064a\u0647 = \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a {t} \u062c\u0646\u064a\u0647 "
+         "(\u0627\u0644\u0633\u0639\u0631 \u0634\u0627\u0645\u0644 \u0627\u0644\u0634\u062d\u0646).")
+_NEW_RE = re.compile("\u0645\u0635\u0627\u0631\u064a\u0641 \u0627\u0644\u0634\u062d\u0646 (\\d+) \u062c\u0646\u064a\u0647")
+_OLD_RE = re.compile(r"\[ship:(\d+)\]")
+
+
+def make_note(product_total, ship, total):
+    """Arabic note for the call center: product price + shipping = total (shipping included)."""
+    return _NOTE.format(p=int(product_total), s=int(ship), t=int(total))
+
+
+def shipping_marker(note):
+    """('new', shipping) for our Arabic note, ('old', shipping) for the first [ship:N]
+    marker, or None if shipping was not added to this order yet."""
+    note = note or ""
+    m = _NEW_RE.search(note)
+    if m:
+        return "new", int(m.group(1))
+    m = _OLD_RE.search(note)
+    if m:
+        return "old", int(m.group(1))
+    return None
+
+
+def strip_old_marker(note):
+    return _OLD_RE.sub("", note or "").strip(" ;")
