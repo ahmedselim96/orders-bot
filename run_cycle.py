@@ -38,9 +38,10 @@ STAGE = os.environ.get("STAGE", "save")                # save = stop after verif
 BUDGET = int(os.environ.get("BUDGET_SECONDS", "270"))
 MAX_ACTIONS = int(os.environ.get("MAX_ACTIONS", "5"))
 STATE_DIR = os.environ.get("STATE_DIR", "").strip()
-SHIP_MODE = os.environ.get("SHIPPING_MODE", "platform").strip().lower()
+SHIP_MODE = os.environ.get("SHIPPING_MODE", "price").strip().lower()
+FLAT = int(os.environ.get("PLATFORM_FLAT_SHIP", "0") or 0)   # fee EasyOrders adds itself on missed->order
 if SHIP_MODE not in ("platform", "price"):
-    SHIP_MODE = "platform"
+    SHIP_MODE = "price"
 
 
 class Limited:
@@ -76,7 +77,7 @@ def safe_report(store, since_ts, log=print):
             + (f" | why={note}" if state in ("needs_review", "excluded", "failed") else "")
             + (f" | err={re.sub(r'[0-9]', '#', err)}" if err else ""))
     total = store.db.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
-    log(f"touched={len(rows)} known_total={total} live={LIVE} ship={SHIP_MODE}")
+    log(f"touched={len(rows)} known_total={total} live={LIVE} ship={SHIP_MODE} flat={FLAT}")
 
 
 def _challenge_notice():
@@ -130,7 +131,7 @@ def main():
                           deadline=deadline,
                           max_actions=1 if AUTO else (MAX_ACTIONS if (LIVE and not ONLY_KEY) else None),
                           require_safe=AUTO,
-                          ship_mode=SHIP_MODE,
+                          ship_mode=SHIP_MODE, platform_flat=FLAT if SHIP_MODE == "price" else 0,
                           log=lambda m: print("[cycle]", m))
         except ChallengeDetected as e:
             print(f"STOP: login/challenge page detected ({e}). "

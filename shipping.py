@@ -35,13 +35,16 @@ def plan_price(province, unit, qty):
     return True, math.ceil(new), ""      # fractions are rounded UP (Ali's rule)
 
 
-def plan_prices(province, cart):
+def plan_prices(province, cart, flat=0):
     """cart = [(unit, qty), ...]. The fee is spread over ALL pieces:
     every piece carries fee/total_pieces, each line's unit price is rounded UP.
     One line == the single-line rule. Returns (ok, [new_unit,...], reason)."""
     fee = SHIPPING.get(province)
     if fee is None:
         return False, [], "no_shipping_for_province"
+    fee = fee - flat          # the platform itself adds `flat` at conversion
+    if fee < 0:
+        return False, [], "fee_below_platform_flat"
     if not cart or len(cart) > 6:
         return False, [], "cart_lines=%d" % len(cart)
     if any(q < 1 or u <= 0 for u, q in cart):
@@ -92,3 +95,17 @@ _NOTE_PLAT = ("\u0645\u0644\u062d\u0648\u0638\u0629 \u0644\u0644\u0643\u0648\u06
 def make_platform_note(product_total, ship, total):
     """Platform mode: the price is NOT touched; EasyOrders adds the shipping itself."""
     return _NOTE_PLAT.format(p=int(product_total), s=int(ship), t=int(total))
+
+
+_FLAT_TAG = "(\u0645\u0646\u0647\u0627 {f} \u062c\u0646\u064a\u0647 \u0628\u062a\u0636\u064a\u0641\u0647\u0627 \u0627\u0644\u0645\u0646\u0635\u0629 \u062a\u0644\u0642\u0627\u0626\u064a)"
+
+
+def make_flat_note(product_total, ship, total, flat):
+    """Price mode when the platform adds a fixed fee `flat` at conversion:
+    `ship` and `total` are the REAL totals the customer pays."""
+    return (_NOTE.rsplit(" (", 1)[0].format(p=int(product_total), s=int(ship), t=int(total))
+            + " " + _FLAT_TAG.format(f=int(flat)))
+
+
+def has_flat_tag(note, flat):
+    return _FLAT_TAG.format(f=int(flat)) in (note or "")

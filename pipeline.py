@@ -12,7 +12,7 @@ from typing import Optional
 from phone import normalize_phone
 from governorate import resolve_governorate, resolve_address
 from shipping import (SHIPPING, plan_prices, make_note, make_platform_note,
-                      shipping_marker, strip_old_marker)
+                      shipping_marker, strip_old_marker, make_flat_note, has_flat_tag)
 from store import (Store, NEW, READY, PROCESSING, SAVED, RESENDING, SUCCEEDED,
                     FAILED, NEEDS_REVIEW, EXCLUDED)
 
@@ -70,7 +70,7 @@ def plan_changes(detail: Detail, phone, gov, addr) -> dict:
 
 def process_cycle(store: Store, driver, real_orders, taager=None,
                   dry_run=True, owner="run", log=print, stop_after_save=False,
-                  deadline=None, max_actions=None, ship_mode="platform", require_safe=False):
+                  deadline=None, max_actions=None, ship_mode="price", require_safe=False, platform_flat=0):
     if not store.acquire_lock(owner, ttl=600):
         log("another run holds the lock; exiting")
         return {"skipped": "locked"}
@@ -177,6 +177,9 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
                                   "fee": fee, "total": ptotal + fee}
             elif mk and mk[0] == "new":
                 # Already shipped by an earlier save: NEVER add it again, never re-save.
+                if platform_flat and not has_flat_tag(detail.note, platform_flat):
+                    store.transition(key, NEEDS_REVIEW, "shipping saved before flat-fee model")
+                    continue
                 if fee is None or not (fee <= mk[1] <= fee + 10):
                     store.transition(key, NEEDS_REVIEW, "shipping note does not match province")
                     continue
@@ -199,7 +202,7 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
                     changes = {"note": (base + " ; " if base else "") + text}
                     price_info = {"legacy_marker": mk[1], "total": total}
                 else:
-                    ok, new_units, why = plan_prices(gov.province, cart)
+                    ok, new_units, why = plan_prices(gov.province, cart, platform_flat)
                     if not ok:
                         store.transition(key, NEEDS_REVIEW, f"price: {why}")
                         continue
@@ -207,10 +210,14 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
                     new_total = sum(nu * q for nu, (u, q) in zip(new_units, cart))
                     changes["price"] = new_units
                     base_note = changes.get("note", detail.note or "")
-                    text = make_note(old_total, new_total - old_total, new_total)
+                    if platform_flat:
+                        text = make_flat_note(old_total, new_total - old_total + platform_flat,
+                                              new_total + platform_flat, platform_flat)
+                    else:
+                        text = make_note(old_total, new_total - old_total, new_total)
                     changes["note"] = (base_note + " ; " if base_note else "") + text
                     price_info = {"lines": [list(c) for c in cart], "fee": fee, "new": new_units,
-                                  "total": new_total}
+                                  "total": new_total + platform_flat}
 
             store.transition(key, READY, "decided",
                              after={"uuid": detail.uuid, "plan": changes,
