@@ -29,7 +29,10 @@ MODE = os.environ.get("BOT_MODE", "").strip().lower()
 CONFIRMED = os.environ.get("LIVE_CONFIRM") == "I-ACCEPT-LIVE-CONVERSIONS"
 LIVE = CONFIRMED and (os.environ.get("DRY_RUN", "1") == "0" or MODE == "live")
 MAX_ORDERS = int(os.environ.get("MAX_ORDERS", "15" if not MODE else "300"))
-ONLY_KEY = os.environ.get("ONLY_KEY", "").strip()      # live: ONE order (key prefix)
+ONLY_KEY = os.environ.get("ONLY_KEY", "").strip()      # live: ONE order (key prefix) or "auto"
+AUTO = ONLY_KEY.lower() == "auto"                      # pick the first SAFE order by itself
+if AUTO:
+    ONLY_KEY = ""
 ALLOW_BATCH = os.environ.get("ALLOW_BATCH") == "yes-process-all"
 STAGE = os.environ.get("STAGE", "save")                # save = stop after verified save
 BUDGET = int(os.environ.get("BUDGET_SECONDS", "270"))
@@ -94,7 +97,7 @@ def _challenge_notice():
 def main():
     if MODE == "off":
         print("BOT_MODE=off: nothing to do"); return 0
-    if LIVE and len(ONLY_KEY) < 6 and not ALLOW_BATCH:
+    if LIVE and len(ONLY_KEY) < 6 and not ALLOW_BATCH and not AUTO:
         print("live mode needs ONLY_KEY (>=6 chars) or ALLOW_BATCH: refusing")
         return 2
     raw = os.environ.get("EASYORDERS_STATE")
@@ -102,7 +105,7 @@ def main():
         print("missing EASYORDERS_STATE secret"); return 2
 
     # state is persisted ONLY in live batch mode (dry-run leaves no trace)
-    persist = LIVE and ALLOW_BATCH and not ONLY_KEY and STATE_DIR
+    persist = LIVE and ALLOW_BATCH and not ONLY_KEY and not AUTO and STATE_DIR
     if persist:
         os.makedirs(STATE_DIR, exist_ok=True)
         store = Store(os.path.join(STATE_DIR, "state.db"))
@@ -111,6 +114,8 @@ def main():
         store = Store(":memory:")
     started = time.time()
     deadline = time.monotonic() + BUDGET if (LIVE and not ONLY_KEY) else None
+    if AUTO:
+        print("[cycle] AUTO test: first SAFE order only (field/address province + real address)")
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -118,12 +123,13 @@ def main():
         page = ctx.new_page()
         page.set_default_timeout(45000)
         try:
-            driver = Limited(EasyOrdersDriver(page), MAX_ORDERS, ONLY_KEY if LIVE else "")
+            driver = Limited(EasyOrdersDriver(page), 40 if AUTO else MAX_ORDERS, ONLY_KEY if LIVE else "")
             process_cycle(store, driver, RealOrders(page), taager=None,
                           dry_run=not LIVE, owner="gha",
                           stop_after_save=(STAGE != "convert"),
                           deadline=deadline,
-                          max_actions=MAX_ACTIONS if (LIVE and not ONLY_KEY) else None,
+                          max_actions=1 if AUTO else (MAX_ACTIONS if (LIVE and not ONLY_KEY) else None),
+                          require_safe=AUTO,
                           ship_mode=SHIP_MODE,
                           log=lambda m: print("[cycle]", m))
         except ChallengeDetected as e:

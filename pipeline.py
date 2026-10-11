@@ -70,7 +70,7 @@ def plan_changes(detail: Detail, phone, gov, addr) -> dict:
 
 def process_cycle(store: Store, driver, real_orders, taager=None,
                   dry_run=True, owner="run", log=print, stop_after_save=False,
-                  deadline=None, max_actions=None, ship_mode="platform"):
+                  deadline=None, max_actions=None, ship_mode="platform", require_safe=False):
     if not store.acquire_lock(owner, ttl=600):
         log("another run holds the lock; exiting")
         return {"skipped": "locked"}
@@ -141,6 +141,10 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
             addr = resolve_address(detail.address, gov,
                                    hit.address if hit else None,
                                    hit.province if hit else None)
+            if require_safe and not (gov.source in ("field", "address_gov")
+                                     and addr.source == "order" and not gov.ambiguous_with):
+                log("auto-test: skipped (province or address was guessed)")
+                continue
             changes = plan_changes(detail, phone, gov, addr)
 
             # ---- shipping goes INTO the unit price (conversion cannot be undone) ----
