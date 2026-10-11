@@ -36,7 +36,7 @@ if AUTO:
 ALLOW_BATCH = os.environ.get("ALLOW_BATCH") == "yes-process-all"
 STAGE = os.environ.get("STAGE", "save")                # save = stop after verified save
 BUDGET = int(os.environ.get("BUDGET_SECONDS", "270"))
-MAX_ACTIONS = int(os.environ.get("MAX_ACTIONS", "5"))
+MAX_ACTIONS = int(os.environ.get("MAX_ACTIONS", "0") or 0)   # 0 = no cap (the time budget still applies)
 STATE_DIR = os.environ.get("STATE_DIR", "").strip()
 SHIP_MODE = os.environ.get("SHIPPING_MODE", "price").strip().lower()
 FLAT = int(os.environ.get("PLATFORM_FLAT_SHIP", "0") or 0)   # fee EasyOrders adds itself on missed->order
@@ -129,7 +129,7 @@ def main():
                           dry_run=not LIVE, owner="gha",
                           stop_after_save=(STAGE != "convert"),
                           deadline=deadline,
-                          max_actions=1 if AUTO else (MAX_ACTIONS if (LIVE and not ONLY_KEY) else None),
+                          max_actions=1 if AUTO else ((MAX_ACTIONS or None) if (LIVE and not ONLY_KEY) else None),
                           require_safe=AUTO,
                           ship_mode=SHIP_MODE, platform_flat=FLAT if SHIP_MODE == "price" else 0,
                           log=lambda m: print("[cycle]", m))
