@@ -115,7 +115,7 @@ def main():
     started = time.time()
     deadline = time.monotonic() + BUDGET if (LIVE and not ONLY_KEY) else None
     if AUTO:
-        print("[cycle] AUTO test: first SAFE order only (field/address province + real address)")
+        print("[cycle] AUTO test: first valid order only (unknown province = Fayoum fallback)")
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
