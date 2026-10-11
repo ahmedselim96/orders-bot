@@ -22,7 +22,7 @@ jobs:
   cycle:
     if: ${{ vars.BOT_MODE != 'off' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,8 +50,8 @@ jobs:
           ALLOW_BATCH: "yes-process-all"
           STAGE: "convert"
           STATE_DIR: ".state"
-          MAX_ACTIONS: "5"
-          BUDGET_SECONDS: "270"
+          MAX_ACTIONS: "0"
+          BUDGET_SECONDS: "780"
           EASYORDERS_STATE: ${{ secrets.EASYORDERS_STATE }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
