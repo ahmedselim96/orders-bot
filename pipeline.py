@@ -11,7 +11,8 @@ from typing import Optional
 
 from phone import normalize_phone
 from governorate import resolve_governorate, resolve_address
-from shipping import SHIPPING, plan_prices, make_note, shipping_marker, strip_old_marker
+from shipping import (SHIPPING, plan_prices, make_note, make_platform_note,
+                      shipping_marker, strip_old_marker)
 from store import (Store, NEW, READY, PROCESSING, SAVED, RESENDING, SUCCEEDED,
                     FAILED, NEEDS_REVIEW, EXCLUDED)
 
@@ -69,13 +70,14 @@ def plan_changes(detail: Detail, phone, gov, addr) -> dict:
 
 def process_cycle(store: Store, driver, real_orders, taager=None,
                   dry_run=True, owner="run", log=print, stop_after_save=False,
-                  deadline=None, max_actions=None):
+                  deadline=None, max_actions=None, ship_mode="platform"):
     if not store.acquire_lock(owner, ttl=600):
         log("another run holds the lock; exiting")
         return {"skipped": "locked"}
     summary = {}
     try:
         actions = 0
+        seen_phones = set()
         for row in driver.list_missed():
             if deadline is not None and time.monotonic() > deadline:
                 log("time budget reached; the rest waits for the next cycle")
@@ -102,6 +104,9 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
             if phone.status != "ok":
                 store.transition(key, NEEDS_REVIEW, f"phone: {phone.reason}")
                 continue
+            if phone.phone in seen_phones:      # one order per phone per cycle: the 2nd waits
+                log("same phone as another row in this cycle; it waits for the next cycle")
+                continue
             try:
                 dup = real_orders.exists(phone.phone)
             except Exception as e:               # ambiguous page: never guess
@@ -117,6 +122,10 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
             hit: Optional[TaagerHit] = None
             gov = resolve_governorate(detail.government, detail.address)
             need_taager = (gov.source == "fallback") or not (detail.address or "").strip()
+            if gov.out_of_area:
+                store.transition(key, NEEDS_REVIEW,
+                                 "outside coverage: " + gov.province.split(":", 1)[1])
+                continue
             if need_taager and taager is not None:
                 try:
                     hit = taager.lookup(phone.phone)
@@ -125,6 +134,10 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
             if hit:
                 gov = resolve_governorate(detail.government, detail.address,
                                           taager_province=hit.province)
+            if gov.out_of_area:
+                store.transition(key, NEEDS_REVIEW,
+                                 "outside coverage: " + gov.province.split(":", 1)[1])
+                continue
             addr = resolve_address(detail.address, gov,
                                    hit.address if hit else None,
                                    hit.province if hit else None)
@@ -133,7 +146,36 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
             # ---- shipping goes INTO the unit price (conversion cannot be undone) ----
             mk = shipping_marker(detail.note)
             fee = SHIPPING.get(gov.province)
-            if mk and mk[0] == "new":
+            if ship_mode == "platform":
+                # Platform adds its own shipping at conversion: the unit price is NOT touched.
+                if fee is None:
+                    store.transition(key, NEEDS_REVIEW, "price: no_shipping_for_province")
+                    continue
+                if mk and mk[0] in ("new", "old"):
+                    store.transition(key, NEEDS_REVIEW, "shipping already folded into price")
+                    continue
+                if mk and mk[0] == "platform":
+                    if mk[1] != fee:
+                        store.transition(key, NEEDS_REVIEW, "shipping note does not match province")
+                        continue
+                    changes = {}
+                    price_info = {"mode": "platform", "noted": mk[1]}
+                else:
+                    try:
+                        cart = driver.read_cart(detail)      # opens the edit form, never saves
+                    except Exception as e:
+                        store.transition(key, NEEDS_REVIEW, f"cart read failed: {type(e).__name__}")
+                        continue
+                    if not cart or any(q < 1 or u <= 0 for u, q in cart):
+                        store.transition(key, NEEDS_REVIEW, "price: bad_cart_values")
+                        continue
+                    ptotal = sum(u * q for u, q in cart)
+                    base_note = changes.get("note", detail.note or "")
+                    text = make_platform_note(ptotal, fee, ptotal + fee)
+                    changes["note"] = (base_note + " ; " if base_note else "") + text
+                    price_info = {"mode": "platform", "lines": [list(c) for c in cart],
+                                  "fee": fee, "total": ptotal + fee}
+            elif mk and mk[0] == "new":
                 # Already shipped by an earlier save: NEVER add it again, never re-save.
                 if fee is None or not (fee <= mk[1] <= fee + 10):
                     store.transition(key, NEEDS_REVIEW, "shipping note does not match province")
@@ -175,6 +217,7 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
                                     "gov_source": gov.source,
                                     "addr_source": addr.source,
                                     "price": price_info})
+            seen_phones.add(phone.phone)
             if dry_run:
                 summary[key] = {"plan": list(changes), "dry_run": True}
                 continue

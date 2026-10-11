@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 from governorates_data import (
-    ALIASES, EXTRA_OVERRIDES, EASYORDERS_NAME, FALLBACK_PROVINCE,
+    ALIASES, EXTRA_OVERRIDES, EASYORDERS_NAME, FALLBACK_PROVINCE, OUT_OF_AREA,
 )
+
+OUT_PREFIX = "OUT:"      # province value for areas that are not served
 
 PLACEHOLDER_ADDRESS = "\u0627\u0644\u0639\u0646\u0648\u0627\u0646 \u0628\u0627\u0644\u062a\u0644\u064a\u0641\u0648\u0646"
 
@@ -42,6 +44,8 @@ def _build_entries():
         a, p = normalize(alias), normalize(prov)
         tier = 1 if _strip_al(a) == _strip_al(p) else 2
         entries.append((tier, a, prov, i))
+    for j, (alias, label, is_prov) in enumerate(OUT_OF_AREA):
+        entries.append((1 if is_prov else 2, normalize(alias), OUT_PREFIX + label, 1000 + j))
     return entries
 
 
@@ -68,6 +72,10 @@ class GovResult:
     guessed: bool = False
     matched: str = ""      # the alias that matched (for the log)
     ambiguous_with: tuple = ()
+
+    @property
+    def out_of_area(self) -> bool:
+        return self.province.startswith(OUT_PREFIX)
 
     @property
     def easyorders_value(self) -> str:

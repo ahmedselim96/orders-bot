@@ -70,6 +70,8 @@ def shipping_marker(note):
     marker, or None if shipping was not added to this order yet."""
     note = note or ""
     m = _NEW_RE.search(note)
+    if m and _PLAT_SUFFIX in note:
+        return "platform", int(m.group(1))
     if m:
         return "new", int(m.group(1))
     m = _OLD_RE.search(note)
@@ -80,3 +82,13 @@ def shipping_marker(note):
 
 def strip_old_marker(note):
     return _OLD_RE.sub("", note or "").strip(" ;")
+
+
+_PLAT_SUFFIX = "(\u0627\u0644\u0634\u062d\u0646 \u0628\u064a\u062a\u0636\u0627\u0641 \u062a\u0644\u0642\u0627\u0626\u064a \u0645\u0646 \u0627\u0644\u0645\u0646\u0635\u0629)"
+_NOTE_PLAT = ("\u0645\u0644\u062d\u0648\u0638\u0629 \u0644\u0644\u0643\u0648\u0644 \u0633\u0646\u062a\u0631: \u0633\u0639\u0631 \u0627\u0644\u0645\u0646\u062a\u062c {p} \u062c\u0646\u064a\u0647 + "
+              "\u0645\u0635\u0627\u0631\u064a\u0641 \u0627\u0644\u0634\u062d\u0646 {s} \u062c\u0646\u064a\u0647 = \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a {t} \u062c\u0646\u064a\u0647 ") + _PLAT_SUFFIX
+
+
+def make_platform_note(product_total, ship, total):
+    """Platform mode: the price is NOT touched; EasyOrders adds the shipping itself."""
+    return _NOTE_PLAT.format(p=int(product_total), s=int(ship), t=int(total))
