@@ -141,9 +141,10 @@ def process_cycle(store: Store, driver, real_orders, taager=None,
             addr = resolve_address(detail.address, gov,
                                    hit.address if hit else None,
                                    hit.province if hit else None)
-            if require_safe and not (gov.source in ("field", "address_gov")
-                                     and addr.source == "order" and not gov.ambiguous_with):
-                log("auto-test: skipped (province or address was guessed)")
+            if require_safe and not (gov.source in ("field", "address_gov", "address_place")
+                                     and not gov.ambiguous_with):
+                log(f"auto-test: skipped (gov={gov.source} addr={addr.source} "
+                    f"ambiguous={bool(gov.ambiguous_with)})")
                 continue
             changes = plan_changes(detail, phone, gov, addr)
 
