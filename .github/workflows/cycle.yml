@@ -1,10 +1,11 @@
 name: missed-orders-cycle
 
-# Runs every ~5 minutes. Mode is controlled by the repository VARIABLE BOT_MODE
-# (Settings > Secrets and variables > Actions > Variables):
-#   (not set)  -> read-only dry-run
-#   live       -> really saves + converts (max 5 conversions per cycle)
-#   off        -> the job is skipped completely (kill switch)
+# Runs about every 5 minutes (GitHub may delay scheduled runs). Mode is controlled by the
+# repository VARIABLE BOT_MODE (changeable from the dashboard):
+#   (not set / dry) -> read-only dry-run
+#   live            -> really saves + converts (no cap per cycle; time budget below)
+#   off             -> the job is skipped completely (kill switch)
+# Settings (shipping table, platform fee, cap) live in config.json.
 # NEVER add pull_request here (secrets must not reach forks).
 on:
   schedule:
@@ -12,7 +13,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write              # only to publish status.json to the "status" branch
 
 concurrency:
   group: missed-orders-cycle    # no overlapping cycles
@@ -63,3 +64,15 @@ jobs:
         with:
           path: .state
           key: bot-state-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Publish status for the dashboard
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f .state/status.json ]; then
+            rm -rf /tmp/pub && mkdir /tmp/pub && cp .state/status.json /tmp/pub/status.json
+            cd /tmp/pub
+            git init -q -b status
+            git add status.json
+            git -c user.name="orders-bot" -c user.email="orders-bot@users.noreply.github.com" commit -q -m "status"
+            git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" status
+          fi
