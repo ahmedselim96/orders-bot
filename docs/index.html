@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة تحكم الطلبات المفقودة</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#edf0f3; --panel:#fff; --ink:#142033; --mute:#5b6b7e; --line:#d9dfe6;
+  --brand:#0e5a78; --brand-ink:#fff;
+  --ok:#17744f; --ok-bg:#e3f4ec; --warn:#9a6208; --warn-bg:#fbf0d9; --bad:#b42a2a; --bad-bg:#fbe5e3;
+  --info:#255a9c; --info-bg:#e4eefa; --idle:#6b7785; --idle-bg:#eceff2;
+  --r:10px;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0e141d; --panel:#172130; --ink:#e6ecf3; --mute:#97a6b8; --line:#2a384b;
+    --brand:#4fb0d3; --brand-ink:#06202c;
+    --ok:#5fd0a0; --ok-bg:#12372a; --warn:#e8b45a; --warn-bg:#3a2d12; --bad:#ff8f87; --bad-bg:#3d1b1b;
+    --info:#8fb8f0; --info-bg:#15283f; --idle:#9aa7b6; --idle-bg:#222e3d;}
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.6 "IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+.wrap{max-width:1120px;margin:0 auto;padding:0 16px 56px}
+header.top{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:18px 0 10px;flex-wrap:wrap}
+header.top h1{font-size:19px;margin:0;font-weight:700}
+header.top .sub{color:var(--mute);font-size:13px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:6px 0 18px}
+.tab{background:none;border:0;padding:10px 16px;cursor:pointer;color:var(--mute);font-weight:500;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--brand);font-weight:700}
+.tab:focus-visible,.btn:focus-visible,.seg button:focus-visible,.chip:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.grid{display:grid;gap:16px}
+.hidden{display:none!important}
+
+/* control strip */
+.control{display:grid;grid-template-columns:auto 1fr;gap:18px 22px;align-items:center}
+.lamp{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;font-size:28px;background:var(--idle-bg);color:var(--idle);border:3px solid var(--idle)}
+.lamp.live{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
+.lamp.dry{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
+.lamp.off{background:var(--bad-bg);color:var(--bad);border-color:var(--bad)}
+.lamp.live::after{content:"";position:absolute;width:64px;height:64px;border-radius:50%;border:3px solid var(--ok);animation:ping 2.4s ease-out infinite}
+.lampbox{position:relative;width:64px;height:64px}
+@keyframes ping{from{transform:scale(1);opacity:.7}to{transform:scale(1.55);opacity:0}}
+@media (prefers-reduced-motion:reduce){.lamp.live::after{animation:none;display:none}}
+.state-title{font-size:22px;font-weight:700;line-height:1.3}
+.state-sub{color:var(--mute);font-size:14px;margin-top:2px}
+.actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.seg button{background:var(--panel);border:0;padding:10px 20px;cursor:pointer;font-weight:600;border-inline-start:1px solid var(--line)}
+.seg button:first-child{border-inline-start:0}
+.seg button[aria-pressed=true].m-live{background:var(--ok);color:#fff}
+.seg button[aria-pressed=true].m-dry{background:var(--warn);color:#fff}
+.seg button[aria-pressed=true].m-off{background:var(--bad);color:#fff}
+.seg button:disabled{cursor:progress;opacity:.6}
+.btn{border:1px solid var(--brand);background:var(--brand);color:var(--brand-ink);padding:10px 18px;border-radius:var(--r);cursor:pointer;font-weight:600}
+.btn.ghost{background:transparent;color:var(--brand)}
+.btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.alert{border-radius:var(--r);padding:10px 14px;margin:0 0 14px;font-size:14px}
+.alert.bad{background:var(--bad-bg);color:var(--bad)}
+.alert.warn{background:var(--warn-bg);color:var(--warn)}
+.alert.info{background:var(--info-bg);color:var(--info)}
+.alert a{color:inherit;font-weight:600}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.stat{padding:14px 16px;border-radius:var(--r);border:1px solid var(--line);background:var(--panel)}
+.stat b{display:block;font-size:30px;line-height:1.1;font-weight:700}
+.stat span{color:var(--mute);font-size:13px}
+.stat.ok b{color:var(--ok)} .stat.warn b{color:var(--warn)} .stat.bad b{color:var(--bad)}
+
+/* pulse */
+.pulse-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.pulse-head h2,.sec h2{font-size:16px;margin:0}
+.muted{color:var(--mute);font-size:13px}
+.track{position:relative;height:34px;border-radius:8px;background:var(--idle-bg)}
+.tick{position:absolute;top:5px;width:6px;height:24px;border-radius:3px;transform:translateX(50%);background:var(--ok)}
+.tick.fail{background:var(--bad)} .tick.run{background:var(--info)} .tick.skip{background:var(--idle)}
+.axis{display:flex;justify-content:space-between;color:var(--mute);font-size:12px;margin-top:4px}
+
+/* orders */
+.sec h2{margin-bottom:10px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 14px;cursor:pointer;font-size:14px}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.orders{display:grid;gap:0}
+.orow{display:grid;grid-template-columns:78px 130px 130px 1fr 90px 110px;gap:8px 12px;align-items:center;padding:10px 4px;border-top:1px solid var(--line)}
+.orow.head{color:var(--mute);font-size:13px;border-top:0;padding-top:0}
+.badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap}
+.b-succeeded{background:var(--ok-bg);color:var(--ok)} .b-needs_review{background:var(--warn-bg);color:var(--warn)}
+.b-failed{background:var(--bad-bg);color:var(--bad)} .b-excluded,.b-new{background:var(--idle-bg);color:var(--idle)}
+.b-ready,.b-processing,.b-saved,.b-resending{background:var(--info-bg);color:var(--info)}
+.gov.guess{color:var(--warn);font-weight:600}
+.k{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;color:var(--mute)}
+.empty{padding:26px 8px;text-align:center;color:var(--mute)}
+
+/* settings */
+.form{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+label.f{display:grid;gap:4px;font-weight:600;font-size:14px}
+label.f small{font-weight:400;color:var(--mute)}
+input[type=number],input[type=text],input[type=password],select{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.table{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px 14px;margin-top:8px}
+.trow{display:grid;grid-template-columns:1fr 90px 34px;gap:6px;align-items:center}
+.trow .nm{padding:8px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow input{padding:7px 8px}
+.trow.chg input{border-color:var(--warn);background:var(--warn-bg)}
+.x{border:0;background:none;color:var(--mute);cursor:pointer;font-size:18px;border-radius:6px}
+.x:hover{color:var(--bad)}
+.savebar{position:sticky;bottom:0;margin-top:16px;padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+
+/* setup + dialog */
+.setup{max-width:620px;margin:40px auto}
+.setup ol{padding-inline-start:20px;margin:8px 0}
+.setup li{margin:4px 0}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:22px;max-width:min(520px,92vw)}
+dialog::backdrop{background:rgba(10,16,24,.55)}
+dialog h3{margin:0 0 8px;font-size:18px}
+dialog .row{display:flex;gap:10px;justify-content:flex-start;margin-top:18px;flex-wrap:wrap}
+dialog ul{margin:8px 0;padding-inline-start:20px}
+.toast{position:fixed;inset-inline:16px;bottom:18px;max-width:420px;margin-inline:auto;background:var(--ink);color:var(--bg);padding:11px 16px;border-radius:10px;z-index:9;font-size:14px}
+
+@media (max-width:760px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .orow{grid-template-columns:1fr 1fr;grid-auto-flow:row}
+  .orow.head{display:none}
+  .orow .why{grid-column:1/-1}
+  .control{grid-template-columns:1fr}
+  .seg{width:100%} .seg button{flex:1;padding-inline:8px}
+}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<dialog id="dlg"></dialog>
+<div class="toast hidden" id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const lsGet = k => { try { return localStorage.getItem(k) || ""; } catch { return ""; } };
+const lsSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
+const TZ = "Africa/Cairo";
+const fmtTime = iso => iso ? new Date(iso).toLocaleString("ar-EG-u-nu-latn", {timeZone: TZ, hour: "numeric", minute: "2-digit", day: "numeric", month: "numeric"}) : "—";
+const fmtHM = iso => new Date(iso).toLocaleTimeString("ar-EG-u-nu-latn", {timeZone: TZ, hour: "numeric", minute: "2-digit"});
+function ago(iso) {
+  if (!iso) return "—";
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+  if (m < 1) return "دلوقتي";
+  if (m < 60) return "من " + m + " دقيقة";
+  const h = Math.floor(m / 60);
+  if (h < 48) return "من " + h + " ساعة" + (m % 60 ? " و" + (m % 60) + " دقيقة" : "");
+  return "من " + Math.floor(h / 24) + " يوم";
+}
+const num = v => (v === null || v === undefined || v === "") ? "—" : Number(v).toLocaleString("en-US");
+
+/* ---------- state ---------- */
+const S = {
+  repo: "", token: "", tab: "home", filter: "all",
+  mode: null, status: null, statusErr: "", runs: [], runsErr: "", modeErr: "",
+  cfg: null, cfgSha: "", cfgErr: "", draft: null, busy: false, cooldown: false, loaded: false
+};
+function detectRepo() {
+  const saved = lsGet("eo_repo");
+  if (saved) return saved;
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/i);
+  const p = location.pathname.split("/").filter(Boolean)[0];
+  return m && p ? m[1] + "/" + p : "";
+}
+S.repo = detectRepo(); S.token = lsGet("eo_token");
+
+/* ---------- GitHub API ---------- */
+async function gh(path, o = {}) {
+  const headers = {
+    "Accept": o.raw ? "application/vnd.github.raw+json" : "application/vnd.github+json",
+    "Authorization": "Bearer " + S.token, "X-GitHub-Api-Version": "2022-11-28"
+  };
+  if (o.body) headers["Content-Type"] = "application/json";
+  let r;
+  try {
+    r = await fetch("https://api.github.com/repos/" + S.repo + path,
+      {method: o.method || "GET", headers, body: o.body ? JSON.stringify(o.body) : undefined, cache: "no-store"});
+  } catch { return {ok: false, status: 0, data: null}; }
+  if (r.status === 204) return {ok: true, status: 204, data: null};
+  const t = await r.text(); let data = t;
+  try { data = t ? JSON.parse(t) : null; } catch {}
+  return {ok: r.ok, status: r.status, data};
+}
+const apiErr = r => r.status === 0 ? "مفيش اتصال بالإنترنت أو GitHub مش بيرد."
+  : r.status === 401 ? "التوكن غلط أو منتهي. اعمل توكن جديد."
+  : r.status === 403 ? "التوكن ناقصه صلاحية، أو GitHub حدّ الطلبات مؤقتًا."
+  : r.status === 404 ? "مش لاقي الحاجة دي (الريبو غلط أو الصلاحية ناقصة)."
+  : "GitHub رجّع خطأ " + r.status + (r.data && r.data.message ? ": " + r.data.message : "");
+
+/* ---------- loading ---------- */
+async function loadAll() {
+  if (!S.repo || !S.token) return;
+  const [mode, runs, st, cfg] = await Promise.all([
+    gh("/actions/variables/BOT_MODE"),
+    gh("/actions/workflows/cycle.yml/runs?per_page=40"),
+    gh("/contents/status.json?ref=status", {raw: true}),
+    gh("/contents/config.json?ref=main")
+  ]);
+  if (mode.ok) { const v = String(mode.data.value || "").trim().toLowerCase(); S.mode = v === "live" ? "live" : v === "off" ? "off" : "dry"; S.modeErr = ""; }
+  else if (mode.status === 404) { S.mode = "dry"; S.modeErr = ""; }
+  else { S.modeErr = apiErr(mode); }
+  if (runs.ok) { S.runs = runs.data.workflow_runs || []; S.runsErr = ""; } else S.runsErr = apiErr(runs);
+  if (st.ok && st.data && typeof st.data === "object") { S.status = st.data; S.statusErr = ""; }
+  else { S.status = null; S.statusErr = st.status === 404 ? "لسه مفيش بيانات. تظهر بعد أول دورة شغّالة بوضع «تشغيل»." : apiErr(st); }
+  if (cfg.ok && cfg.data && cfg.data.content) {
+    try {
+      const txt = new TextDecoder().decode(Uint8Array.from(atob(cfg.data.content.replace(/\n/g, "")), c => c.charCodeAt(0)));
+      const parsed = JSON.parse(txt);
+      const fresh = cfg.data.sha !== S.cfgSha;
+      S.cfg = parsed; S.cfgSha = cfg.data.sha; S.cfgErr = "";
+      if (fresh || !S.draft) S.draft = draftFrom(parsed);
+    } catch { S.cfgErr = "ملف config.json متكسر. ارفع نسخة سليمة."; }
+  } else S.cfgErr = cfg.status === 404 ? "ملف config.json مش موجود في الريبو." : apiErr(cfg);
+  S.loaded = true;
+}
+function draftFrom(c) {
+  return {
+    platform_flat: c.platform_flat ?? 0, max_actions: c.max_actions ?? 0,
+    fallback_province: c.fallback_province || "",
+    shipping: Object.entries(c.shipping || {}).map(([name, fee]) => ({name, fee: String(fee)}))
+  };
+}
+async function refresh(silent) {
+  if (S.busy) return;
+  await loadAll();
+  if (!silent || S.tab === "home" || !isEditing()) render();
+}
+const isEditing = () => S.tab === "settings" && JSON.stringify(draftFrom(S.cfg || {})) !== JSON.stringify(S.draft);
+
+/* ---------- ui bits ---------- */
+let toastT;
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.remove("hidden");
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.add("hidden"), 4200);
+}
+function confirmBox(title, bodyHtml, okText, danger) {
+  return new Promise(res => {
+    const d = $("#dlg");
+    d.innerHTML = `<h3>${esc(title)}</h3><div>${bodyHtml}</div>
+      <div class="row"><button class="btn ${danger ? "danger" : ""}" id="dok">${esc(okText)}</button>
+      <button class="btn ghost" id="dno">إلغاء</button></div>`;
+    d.onclose = () => res(d.returnValue === "ok");
+    $("#dok").onclick = () => { d.returnValue = "ok"; d.close(); };
+    $("#dno").onclick = () => { d.returnValue = "no"; d.close(); };
+    d.returnValue = "no"; d.showModal();
+  });
+}
+
+const STATE_AR = {succeeded: "اتحوّل", needs_review: "محتاج قرارك", failed: "فشل", excluded: "مستبعد",
+  new: "مستني", ready: "جاهز", processing: "جاري", saved: "اتحفظ", resending: "بيتحوّل"};
+function whyAr(w) {
+  if (!w) return "";
+  let m;
+  if ((m = w.match(/^outside coverage: (.+)$/))) return "برّه التغطية: " + m[1];
+  if (/duplicate of a real order/.test(w)) return "فيه أوردر حقيقي بنفس الرقم";
+  if (/^phone:/.test(w)) return "الرقم مش صالح";
+  if (/no_shipping_for_province/.test(w)) return "مفيش سعر شحن للمحافظة";
+  if (/flat-fee model/.test(w)) return "اتحفظ بنظام شحن قديم، راجعه يدويًا";
+  if (/already folded/.test(w)) return "الشحن متضاف قبل كده";
+  if (/does not match province/.test(w)) return "ملحوظة الشحن مش بتطابق المحافظة";
+  if (/empty cart/.test(w)) return "السلة فاضية";
+  if (/dup-check unsure/.test(w)) return "مقدرتش أتأكد من التكرار";
+  if (/cart read failed/.test(w)) return "مقدرتش أقرا السلة";
+  if (/unverified after crash/.test(w)) return "التحويل مش متأكد منه، افحصه";
+  if (/save failed|read-back/.test(w)) return "فشل الحفظ";
+  return w;
+}
+function govAr(o) {
+  if (!o.gov) return "";
+  const map = {field: "من حقل المحافظة", address_gov: "من العنوان", address_place: "من العنوان", taager: "من تاجر", fallback: "مخمّنة"};
+  return `<span class="gov ${o.gov === "fallback" ? "guess" : ""}">${esc(map[o.gov] || o.gov)}</span>`;
+}
+
+/* ---------- render ---------- */
+function render() {
+  const app = $("#app");
+  if (!S.repo || !S.token) { app.innerHTML = setupHtml(); bindSetup(); return; }
+  app.innerHTML = `
+    <header class="top">
+      <div><h1>لوحة تحكم الطلبات المفقودة</h1><div class="sub">${esc(S.repo)}</div></div>
+      <div><button class="btn ghost" id="refresh">تحديث</button> <button class="btn ghost" id="logout">خروج</button></div>
+    </header>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="home" aria-selected="${S.tab === "home"}">اللوحة</button>
+      <button class="tab" role="tab" data-tab="settings" aria-selected="${S.tab === "settings"}">الشحن والإعدادات</button>
+    </div>
+    <main id="main">${!S.loaded ? '<div class="empty">بحمّل البيانات…</div>' : S.tab === "home" ? homeHtml() : settingsHtml()}</main>`;
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; render(); });
+  $("#refresh").onclick = async () => { await refresh(); toast("اتحدّث"); };
+  $("#logout").onclick = () => { lsSet("eo_token", ""); S.token = ""; S.loaded = false; render(); };
+  if (S.loaded) { S.tab === "home" ? bindHome() : bindSettings(); }
+}
+
+/* ----- setup ----- */
+function setupHtml() {
+  return `<div class="setup panel">
+    <h1 style="margin:0 0 6px;font-size:20px">ربط اللوحة بالأداة</h1>
+    <p class="muted" style="margin-top:0">مرة واحدة بس. التوكن بيتخزّن في متصفحك أنت وما بيتبعتش لأي مكان غير GitHub.</p>
+    <label class="f">الريبو <small>الصيغة: اسم-الحساب/اسم-الريبو</small>
+      <input type="text" id="repo" dir="ltr" placeholder="ahmedselim96/orders-bot" value="${esc(S.repo)}"></label>
+    <p style="margin:14px 0 4px;font-weight:600">اعمل توكن من GitHub:</p>
+    <ol>
+      <li>افتح <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">إنشاء Fine-grained token</a>.</li>
+      <li>في <b>Repository access</b> اختار <b>Only select repositories</b> وحدد ريبو الأداة بس.</li>
+      <li>في <b>Repository permissions</b> خلّي التلاتة دول <b>Read and write</b>: <b>Actions</b> و<b>Contents</b> و<b>Variables</b>.</li>
+      <li>اضغط Generate token وانسخه والصقه تحت.</li>
+    </ol>
+    <label class="f">التوكن
+      <input type="password" id="tok" dir="ltr" autocomplete="off" placeholder="github_pat_…"></label>
+    <div id="seterr" class="alert bad hidden" style="margin-top:12px"></div>
+    <p style="margin-top:14px"><button class="btn" id="save">حفظ والدخول</button></p>
+    <p class="muted">التوكن ده يقدر يغيّر الإعدادات ويشغّل ويوقف الأداة. ما تبعتوش لحد وما تحطوش في أي صفحة تانية.</p>
+  </div>`;
+}
+function bindSetup() {
+  $("#save").onclick = async () => {
+    const repo = $("#repo").value.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\/+$/, ""), tok = $("#tok").value.trim();
+    const err = $("#seterr");
+    const show = m => { err.textContent = m; err.classList.remove("hidden"); };
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return show("اكتب الريبو بالشكل: اسم-الحساب/اسم-الريبو");
+    if (tok.length < 20) return show("الصق التوكن كامل.");
+    S.repo = repo; S.token = tok;
+    const t = await gh("/actions/workflows/cycle.yml");
+    if (!t.ok) { S.token = ""; return show(apiErr(t)); }
+    lsSet("eo_repo", repo); lsSet("eo_token", tok);
+    S.loaded = false; render(); await refresh();
+  };
+}
+
+/* ----- home ----- */
+function modeInfo() {
+  const m = S.mode;
+  if (m === "live") return {cls: "live", icon: "▶", title: "الأداة شغّالة", sub: "بتحوّل الأوردرات «تحت المراجعة» فعليًا في EasyOrders."};
+  if (m === "off") return {cls: "off", icon: "■", title: "الأداة واقفة", sub: "مفيش دورة هتشتغل ولا أوردر هيتحوّل."};
+  return {cls: "dry", icon: "◐", title: "وضع تجربة", sub: "بتقرا وتخطط بس. مبتحفظش ولا بتحوّل حاجة."};
+}
+function homeHtml() {
+  const mi = modeInfo(), st = S.status, last = S.runs[0];
+  const alerts = [];
+  if (S.modeErr) alerts.push(`<div class="alert bad">مقدرتش أقرا وضع الأداة: ${esc(S.modeErr)}</div>`);
+  if (S.runsErr) alerts.push(`<div class="alert bad">مقدرتش أقرا التشغيلات: ${esc(S.runsErr)}</div>`);
+  if (last && last.status === "completed" && last.conclusion === "failure")
+    alerts.push(`<div class="alert bad">آخر تشغيل فشل (${esc(ago(last.created_at))}). <a href="${esc(last.html_url)}" target="_blank" rel="noopener">افتح اللوج</a>. لو اللوج فيه «login/challenge» يبقى جلسة EasyOrders خلصت وتتجدد من Secret اسمه EASYORDERS_STATE.</div>`);
+  if (S.mode === "live" && last) {
+    const mins = (Date.now() - new Date(last.created_at)) / 60000;
+    if (mins > 45) alerts.push(`<div class="alert warn">آخر تشغيل كان ${esc(ago(last.created_at))}. GitHub متأخر في الجدولة. تقدر تضغط «شغّل دورة دلوقتي».</div>`);
+  }
+  if (st && (st.config_problems || []).length)
+    alerts.push(`<div class="alert warn">فيه إعدادات اتجاهلت لأنها غلط: ${esc(st.config_problems.join("، "))}</div>`);
+  const today = (st && st.today) || {succeeded: 0, needs_review: 0, failed: 0, excluded: 0};
+  return `${alerts.join("")}
+  <section class="panel control" aria-label="التحكم">
+    <div class="lampbox"><div class="lamp ${mi.cls}" aria-hidden="true">${mi.icon}</div></div>
+    <div><div class="state-title">${mi.title}</div>
+      <div class="state-sub">${mi.sub}${last ? " آخر تشغيل " + esc(ago(last.created_at)) + "." : ""}</div></div>
+    <div class="actions">
+      <div class="seg" role="group" aria-label="وضع الأداة">
+        <button class="m-live" data-mode="live" aria-pressed="${S.mode === "live"}">تشغيل</button>
+        <button class="m-dry" data-mode="dry" aria-pressed="${S.mode === "dry"}">تجربة</button>
+        <button class="m-off" data-mode="off" aria-pressed="${S.mode === "off"}">إيقاف</button>
+      </div>
+      <button class="btn" id="runnow" ${S.cooldown || S.mode === "off" ? "disabled" : ""}>شغّل دورة دلوقتي</button>
+      ${S.mode === "off" ? '<span class="muted">الزرار متقفل لأن الأداة واقفة.</span>' : ""}
+    </div>
+  </section>
+  <section class="stats" style="margin-top:16px" aria-label="النهارده">
+    <div class="stat ok"><b>${num(today.succeeded)}</b><span>اتحوّل النهارده</span></div>
+    <div class="stat warn"><b>${num(today.needs_review)}</b><span>محتاج قرارك</span></div>
+    <div class="stat bad"><b>${num(today.failed)}</b><span>فشل</span></div>
+    <div class="stat"><b>${num(today.excluded)}</b><span>مستبعد (مكرر أو برّه التغطية)</span></div>
+  </section>
+  <section class="panel sec" style="margin-top:16px">${pulseHtml()}</section>
+  <section class="panel sec" style="margin-top:16px">${ordersHtml()}</section>`;
+}
+function pulseHtml() {
+  const win = 3 * 3600e3, now = Date.now();
+  const rs = S.runs.filter(r => now - new Date(r.created_at) <= win);
+  const ticks = rs.map(r => {
+    const pos = 100 - ((now - new Date(r.created_at)) / win) * 100;
+    const cls = r.status !== "completed" ? "run" : r.conclusion === "success" ? "" : r.conclusion === "failure" ? "fail" : "skip";
+    return `<a class="tick ${cls}" style="left:${pos.toFixed(2)}%" href="${esc(r.html_url)}" target="_blank" rel="noopener" title="${esc(fmtHM(r.created_at))}"></a>`;
+  }).join("");
+  let avg = "";
+  const times = S.runs.slice(0, 12).map(r => +new Date(r.created_at));
+  if (times.length > 2) { const gaps = []; for (let i = 0; i < times.length - 1; i++) gaps.push(times[i] - times[i + 1]); avg = Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length / 60000); }
+  return `<div class="pulse-head"><h2>دورات آخر 3 ساعات</h2>
+      <span class="muted">${avg ? "متوسط الفاصل بين الدورات: " + avg + " دقيقة" : ""}</span></div>
+    <div class="track" dir="ltr">${ticks || ""}</div>
+    <div class="axis" dir="ltr"><span>من 3 ساعات</span><span>من ساعة ونص</span><span>دلوقتي</span></div>
+    ${rs.length ? "" : '<div class="empty">مفيش دورات في آخر 3 ساعات.</div>'}`;
+}
+function ordersHtml() {
+  const list = (S.status && S.status.orders) || [];
+  const f = S.filter;
+  const match = o => f === "all" || (f === "review" && o.state === "needs_review") || (f === "ok" && o.state === "succeeded")
+    || (f === "fail" && o.state === "failed") || (f === "skip" && o.state === "excluded");
+  const rows = list.filter(match);
+  const chip = (k, t) => `<button class="chip" data-f="${k}" aria-pressed="${f === k}">${t}</button>`;
+  const body = !S.status ? `<div class="empty">${esc(S.statusErr)}</div>`
+    : !rows.length ? '<div class="empty">مفيش أوردرات بالفلتر ده.</div>'
+    : `<div class="orders">
+      <div class="orow head"><span>الأوردر</span><span>الرقم</span><span>الحالة</span><span>المحافظة</span><span>الإجمالي</span><span>الوقت</span></div>
+      ${rows.map(o => `<div class="orow">
+        <span class="k">${esc(o.k)}</span>
+        <bdi dir="ltr" style="text-align:right">${esc(o.phone)}</bdi>
+        <span><span class="badge b-${esc(o.state)}">${esc(STATE_AR[o.state] || o.state)}</span></span>
+        <span>${govAr(o)}</span>
+        <span>${o.total ? num(o.total) : "—"}</span>
+        <span class="muted">${esc(fmtTime(o.t))}</span>
+        ${o.why ? `<span class="why muted" style="grid-column:1/-1;margin-top:-4px">${esc(whyAr(o.why))}</span>` : ""}
+      </div>`).join("")}</div>`;
+  return `<h2>آخر الأوردرات</h2>
+    <div class="chips">${chip("all", "الكل")}${chip("review", "محتاج قرارك")}${chip("ok", "اتحوّل")}${chip("fail", "فشل")}${chip("skip", "مستبعد")}</div>
+    ${body}
+    ${S.status ? `<p class="muted" style="margin-bottom:0">الحالة اتحدّثت ${esc(ago(S.status.updated))}. الأرقام معروضة مخفية جزئيًا.</p>` : ""}`;
+}
+function bindHome() {
+  document.querySelectorAll(".seg button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+  document.querySelectorAll(".chip").forEach(b => b.onclick = () => { S.filter = b.dataset.f; render(); });
+  const rn = $("#runnow"); if (rn) rn.onclick = runNow;
+}
+async function setMode(m) {
+  if (m === S.mode || S.busy) return;
+  const text = {
+    live: ["تشغيل الأداة؟", "<p>الأداة هتحفظ وتحوّل الأوردرات «تحت المراجعة» فعليًا في EasyOrders، من غير سقف للعدد في الدورة.</p><p>الأوردرات اللي بتتحوّل مبتتعدّلش بعد كده من الأداة.</p>", "أيوه، شغّل"],
+    dry: ["وضع التجربة؟", "<p>الأداة هتقرا وتخطط بس. مفيش حفظ ولا تحويل. دورة شغّالة دلوقتي هتكمّل لحد ما تخلص.</p>", "تمام، تجربة"],
+    off: ["إيقاف الأداة؟", "<p>مفيش دورة هتشتغل. دورة شغّالة دلوقتي هتكمّل لحد ما تخلص.</p>", "أوقف"]
+  }[m];
+  if (!await confirmBox(text[0], text[1], text[2], m === "off")) return;
+  S.busy = true; document.querySelectorAll(".seg button").forEach(b => b.disabled = true);
+  let r = await gh("/actions/variables/BOT_MODE", {method: "PATCH", body: {name: "BOT_MODE", value: m}});
+  if (r.status === 404) r = await gh("/actions/variables", {method: "POST", body: {name: "BOT_MODE", value: m}});
+  S.busy = false;
+  if (!r.ok) { toast("ماتغيّرش: " + apiErr(r)); render(); return; }
+  S.mode = m; toast("الوضع بقى: " + ({live: "تشغيل", dry: "تجربة", off: "إيقاف"}[m])); await refresh();
+}
+async function runNow() {
+  if (S.cooldown) return;
+  if (S.mode === "live" && !await confirmBox("تشغيل دورة دلوقتي؟", "<p>الأداة في وضع «تشغيل»، فالدورة هتحوّل الأوردرات الموجودة فعليًا.</p>", "شغّل الدورة")) return;
+  const r = await gh("/actions/workflows/cycle.yml/dispatches", {method: "POST", body: {ref: "main"}});
+  if (!r.ok) { toast("ماتشغّلتش: " + apiErr(r)); return; }
+  toast("اتبعت طلب التشغيل. الدورة بتبدأ خلال ثواني.");
+  S.cooldown = true; render();
+  setTimeout(() => refresh(true), 8000);
+  setTimeout(() => { S.cooldown = false; refresh(true); }, 25000);
+}
+
+/* ----- settings ----- */
+function settingsHtml() {
+  if (S.cfgErr || !S.draft) return `<div class="alert bad">${esc(S.cfgErr || "مفيش إعدادات.")}</div>`;
+  const d = S.draft, base = draftFrom(S.cfg), bmap = Object.fromEntries(base.shipping.map(x => [x.name, x.fee]));
+  const names = d.shipping.map(x => x.name);
+  return `
+  <section class="panel sec">
+    <h2>إعدادات عامة</h2>
+    <div class="form">
+      <label class="f">الشحن اللي المنصة بتضيفه لوحدها
+        <input type="number" id="f-flat" min="0" step="1" value="${esc(d.platform_flat)}">
+        <small>لازم يساوي «سعر الشحن الافتراضي» في إعدادات متجرك في EasyOrders. الأداة بتخصمه من الشحن اللي بتضيفه على سعر المنتج.</small></label>
+      <label class="f">أقصى عدد أوردرات في الدورة
+        <input type="number" id="f-max" min="0" step="1" value="${esc(d.max_actions)}">
+        <small>0 يعني من غير سقف. الدورة بتقف لوحدها لما وقتها يخلص.</small></label>
+      <label class="f">المحافظة لما ماتتعرفش
+        <select id="f-fb">${names.map(n => `<option ${n === d.fallback_province ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+        <small>الأوردر بيتحوّل بالمحافظة دي وبيتكتب في ملحوظته «المحافظة مخمّنة».</small></label>
+    </div>
+  </section>
+  <section class="panel sec" style="margin-top:16px">
+    <h2>سعر الشحن لكل محافظة</h2>
+    <p class="muted" style="margin-top:0">الأسعار دي بتتضاف على سعر المنتج داخل الأوردر. الأسماء لازم تكون مطابقة بالظبط للأسماء في «الشحن المستقل» في EasyOrders.</p>
+    <div class="table">${d.shipping.map((x, i) => `
+      <div class="trow ${bmap[x.name] !== undefined && String(bmap[x.name]) !== String(x.fee) ? "chg" : bmap[x.name] === undefined ? "chg" : ""}">
+        <span class="nm" title="${esc(x.name)}">${esc(x.name)}</span>
+        <input type="number" min="1" step="1" data-i="${i}" value="${esc(x.fee)}" aria-label="شحن ${esc(x.name)}">
+        <button class="x" data-del="${i}" aria-label="حذف ${esc(x.name)}" title="حذف">×</button>
+      </div>`).join("")}</div>
+    <div class="form" style="margin-top:16px;align-items:end;grid-template-columns:2fr 1fr auto">
+      <label class="f">محافظة جديدة <input type="text" id="n-name" placeholder="الاسم زي ما في EasyOrders"></label>
+      <label class="f">السعر <input type="number" id="n-fee" min="1" step="1"></label>
+      <button class="btn ghost" id="n-add">إضافة</button>
+    </div>
+    <p class="muted">المحافظة الجديدة لازم الأداة تعرف تتعرف عليها من العنوان، وده بيتضاف في الكود.</p>
+  </section>
+  <div class="savebar">
+    <span class="muted" id="dirty">${dirty() ? "فيه تعديلات لسه ما اتحفظتش." : "مفيش تعديلات."}</span>
+    <span><button class="btn ghost" id="revert" ${dirty() ? "" : "disabled"}>تراجع</button>
+    <button class="btn" id="savecfg" ${dirty() ? "" : "disabled"}>حفظ الإعدادات</button></span>
+  </div>`;
+}
+const dirty = () => S.cfg && S.draft && JSON.stringify(draftFrom(S.cfg)) !== JSON.stringify(S.draft);
+function bindSettings() {
+  const d = S.draft;
+  const upd = () => { $("#dirty").textContent = dirty() ? "فيه تعديلات لسه ما اتحفظتش." : "مفيش تعديلات."; $("#savecfg").disabled = $("#revert").disabled = !dirty(); };
+  const bindNum = (id, key) => { const e = $(id); if (e) e.oninput = () => { d[key] = e.value; upd(); }; };
+  bindNum("#f-flat", "platform_flat"); bindNum("#f-max", "max_actions");
+  $("#f-fb").onchange = e => { d.fallback_province = e.target.value; upd(); };
+  document.querySelectorAll(".trow input").forEach(i => i.oninput = () => { d.shipping[+i.dataset.i].fee = i.value; upd(); });
+  document.querySelectorAll(".x").forEach(b => b.onclick = () => { d.shipping.splice(+b.dataset.del, 1); if (!d.shipping.some(x => x.name === d.fallback_province)) d.fallback_province = (d.shipping[0] || {}).name || ""; render(); });
+  $("#n-add").onclick = () => {
+    const name = $("#n-name").value.trim(), fee = $("#n-fee").value.trim();
+    if (!name || !(+fee > 0)) return toast("اكتب اسم المحافظة وسعر أكبر من صفر.");
+    if (d.shipping.some(x => x.name === name)) return toast("المحافظة دي موجودة.");
+    d.shipping.push({name, fee}); render();
+  };
+  $("#revert").onclick = () => { S.draft = draftFrom(S.cfg); render(); };
+  $("#savecfg").onclick = saveCfg;
+}
+function validate(d) {
+  const errs = [];
+  const flat = +d.platform_flat, mx = +d.max_actions;
+  if (d.platform_flat === "" || !Number.isInteger(flat) || flat < 0) errs.push("الشحن اللي بتضيفه المنصة لازم يكون رقم صحيح من 0 فوق.");
+  if (d.max_actions === "" || !Number.isInteger(mx) || mx < 0) errs.push("أقصى عدد أوردرات لازم يكون رقم صحيح من 0 فوق.");
+  const names = new Set();
+  for (const x of d.shipping) {
+    if (!(+x.fee > 0) || +x.fee > 100000) errs.push("سعر شحن «" + x.name + "» لازم يكون أكبر من صفر.");
+    else if (+x.fee < flat) errs.push("سعر شحن «" + x.name + "» (" + x.fee + ") أقل من اللي المنصة بتضيفه (" + flat + ").");
+    if (names.has(x.name)) errs.push("«" + x.name + "» مكررة.");
+    names.add(x.name);
+  }
+  if (!d.shipping.length) errs.push("لازم تفضل محافظة واحدة على الأقل.");
+  if (!names.has(d.fallback_province)) errs.push("المحافظة الافتراضية لازم تكون من الجدول.");
+  return errs;
+}
+async function saveCfg() {
+  const d = S.draft, errs = validate(d);
+  if (errs.length) return confirmBox("راجع الأرقام", "<ul>" + errs.map(e => `<li>${esc(e)}</li>`).join("") + "</ul>", "تمام");
+  const base = draftFrom(S.cfg), diff = [];
+  const bm = Object.fromEntries(base.shipping.map(x => [x.name, x.fee]));
+  d.shipping.forEach(x => { if (bm[x.name] === undefined) diff.push(`${x.name}: جديدة بسعر ${x.fee}`); else if (String(bm[x.name]) !== String(x.fee)) diff.push(`${x.name}: ${bm[x.name]} ← ${x.fee}`); });
+  base.shipping.forEach(x => { if (!d.shipping.some(y => y.name === x.name)) diff.push(`${x.name}: اتحذفت`); });
+  if (String(base.platform_flat) !== String(d.platform_flat)) diff.push(`الشحن اللي بتضيفه المنصة: ${base.platform_flat} ← ${d.platform_flat}`);
+  if (String(base.max_actions) !== String(d.max_actions)) diff.push(`أقصى عدد في الدورة: ${base.max_actions} ← ${d.max_actions}`);
+  if (base.fallback_province !== d.fallback_province) diff.push(`المحافظة الافتراضية: ${base.fallback_province} ← ${d.fallback_province}`);
+  if (!await confirmBox("حفظ الإعدادات؟", `<p>التعديلات:</p><ul>${diff.map(x => `<li>${esc(x)}</li>`).join("")}</ul><p>بتسري من الدورة الجاية.</p>`, "احفظ")) return;
+  const shipping = {}; d.shipping.forEach(x => shipping[x.name] = +x.fee);
+  const out = Object.assign({}, S.cfg, {shipping, platform_flat: +d.platform_flat, max_actions: +d.max_actions, fallback_province: d.fallback_province});
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(out, null, 2) + "\n")));
+  S.busy = true; $("#savecfg").disabled = true;
+  const r = await gh("/contents/config.json", {method: "PUT", body: {message: "Update settings from dashboard", content, sha: S.cfgSha, branch: "main"}});
+  S.busy = false;
+  if (r.status === 409 || r.status === 422) { toast("الإعدادات اتغيّرت من مكان تاني. حمّلتها من جديد، راجع وحاول تاني."); S.draft = null; await loadAll(); return render(); }
+  if (!r.ok) { toast("ماتحفظتش: " + apiErr(r)); return render(); }
+  S.cfg = out; S.cfgSha = r.data.content.sha; S.draft = draftFrom(out);
+  toast("اتحفظت. بتسري من الدورة الجاية."); render();
+}
+
+/* ---------- boot ---------- */
+render();
+if (S.repo && S.token) refresh();
+setInterval(() => { if (!document.hidden && S.repo && S.token) refresh(true); }, 60000);
+</script>
+</body>
+</html>

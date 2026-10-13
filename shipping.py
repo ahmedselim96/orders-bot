@@ -23,6 +23,14 @@ SHIPPING = {
 }
 
 
+# ---- editable from config.json (dashboard); invalid -> built-in table stays ----
+import config as _config
+_t = _config.shipping_table()
+if _t:
+    SHIPPING.clear()
+    SHIPPING.update(_t)
+
+
 def plan_price(province, unit, qty):
     """Return (ok, new_unit_or_None, reason). Anything unclear
     (unknown province, qty<1) -> not ok -> Needs Review. Fractions round UP."""

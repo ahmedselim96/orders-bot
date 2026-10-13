@@ -24,6 +24,8 @@ from store import Store
 from pipeline import process_cycle
 from easyorders_pw import EasyOrdersDriver, RealOrders, ChallengeDetected
 import notify
+import config
+import status as status_mod
 
 MODE = os.environ.get("BOT_MODE", "").strip().lower()
 CONFIRMED = os.environ.get("LIVE_CONFIRM") == "I-ACCEPT-LIVE-CONVERSIONS"
@@ -36,10 +38,10 @@ if AUTO:
 ALLOW_BATCH = os.environ.get("ALLOW_BATCH") == "yes-process-all"
 STAGE = os.environ.get("STAGE", "save")                # save = stop after verified save
 BUDGET = int(os.environ.get("BUDGET_SECONDS", "270"))
-MAX_ACTIONS = int(os.environ.get("MAX_ACTIONS", "0") or 0)   # 0 = no cap (the time budget still applies)
+MAX_ACTIONS = config.get_int("max_actions", int(os.environ.get("MAX_ACTIONS", "0") or 0), 0, 100000)   # 0 = no cap (the time budget still applies; config.json wins over env)
 STATE_DIR = os.environ.get("STATE_DIR", "").strip()
 SHIP_MODE = os.environ.get("SHIPPING_MODE", "price").strip().lower()
-FLAT = int(os.environ.get("PLATFORM_FLAT_SHIP", "0") or 0)   # fee EasyOrders adds itself on missed->order
+FLAT = config.get_int("platform_flat", int(os.environ.get("PLATFORM_FLAT_SHIP", "0") or 0), 0, 10000)   # fee EasyOrders adds itself on missed->order (config.json wins over env)
 if SHIP_MODE not in ("platform", "price"):
     SHIP_MODE = "price"
 
@@ -101,6 +103,8 @@ def main():
     if LIVE and len(ONLY_KEY) < 6 and not ALLOW_BATCH and not AUTO:
         print("live mode needs ONLY_KEY (>=6 chars) or ALLOW_BATCH: refusing")
         return 2
+    for p in config.CONFIG_PROBLEMS:
+        print("[config] ignored:", p)
     raw = os.environ.get("EASYORDERS_STATE")
     if not raw:
         print("missing EASYORDERS_STATE secret"); return 2
@@ -141,6 +145,15 @@ def main():
         finally:
             browser.close()
     safe_report(store, started - 1)
+    if persist:
+        try:
+            status_mod.export(store, os.path.join(STATE_DIR, "status.json"),
+                              {"mode": MODE or "dry", "ship": SHIP_MODE, "flat": FLAT,
+                               "max_actions": MAX_ACTIONS,
+                               "config_problems": list(config.CONFIG_PROBLEMS)[:10]},
+                              started)
+        except Exception as e:                   # the dashboard must never break a cycle
+            print("[status] export failed:", type(e).__name__)
     if LIVE:
         msg = notify.summarize(store, started - 1)
         if msg:

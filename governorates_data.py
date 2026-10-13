@@ -330,3 +330,8 @@ EXTRA_PLACES = [
     ("\u0633\u0631\u0633 \u0627\u0644\u0644\u064a\u0627\u0646", "\u0627\u0644\u0645\u0646\u0648\u0641\u064a\u0629"),
 ]
 ALIASES = list(ALIASES) + EXTRA_PLACES
+
+
+# ---- editable fallback province (config.json); must be a province that has a shipping fee ----
+import config as _config
+FALLBACK_PROVINCE = _config.get_str("fallback_province", FALLBACK_PROVINCE)
