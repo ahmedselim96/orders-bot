@@ -1,0 +1,4 @@
+easyorders_state.json
+*.db
+.state/
+__pycache__/
